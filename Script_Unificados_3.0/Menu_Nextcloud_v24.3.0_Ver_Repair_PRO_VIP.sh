@@ -2993,7 +2993,7 @@ menu_usuarios_nextcloud(){
     echo -e " ${YELLOW}5)${RESET} Cambiar contraseña automático"
     echo -e " ${YELLOW}6)${RESET} Hacer administrador"
     echo -e " ${YELLOW}7)${RESET} Información usuario"
-    echo -e " ${YELLOW}0)${RESET} Salir"
+    echo -e " ${YELLOW}0)${RESET} Volver"
 
     echo
     read -rp "> " op
@@ -3007,7 +3007,7 @@ menu_usuarios_nextcloud(){
       5) nc_cambiar_password ;;
       6) nc_hacer_admin ;;
       7) nc_info_usuario ;;
-      0) clear ; exit 0 ;;
+      0) return ;;
 
       *) warn "Opción inválida"; pausa ;;
 
