@@ -6,7 +6,123 @@
 
 SCRIPT_URL="https://repo.jellyfin.org/install-debuntu.sh"
 
+# ===== Colores =====
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+WHITE='\033[1;37m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# =========================================================
+# VERIFICAR DEPENDENCIAS
+# =========================================================
+
+DEPENDENCIAS=(
+    curl
+    apache2
+    openssl
+)
+
+MODULOS_APACHE=(
+    ssl
+    proxy
+    proxy_http
+    proxy_wstunnel
+    headers
+    rewrite
+)
+
+verificar_dependencias() {
+
+    echo
+    echo -e "${CYAN}===============================================${NC}"
+    echo -e "${CYAN}       Verificando dependencias...${NC}"
+    echo -e "${CYAN}===============================================${NC}"
+    echo
+
+    FALTANTES=()
+
+    # Verificar paquetes
+    for pkg in "${DEPENDENCIAS[@]}"; do
+
+        if dpkg -s "$pkg" &>/dev/null; then
+            echo -e "${GREEN}✔${NC} Paquete instalado: ${pkg}"
+        else
+            echo -e "${RED}✘${NC} Falta paquete: ${pkg}"
+            FALTANTES+=("$pkg")
+        fi
+
+    done
+
+    echo
+
+    # Verificar módulos apache
+    for mod in "${MODULOS_APACHE[@]}"; do
+
+        if apache2ctl -M 2>/dev/null | grep -q "${mod}_module"; then
+            echo -e "${GREEN}✔${NC} Módulo Apache activo: ${mod}"
+        else
+            echo -e "${RED}✘${NC} Módulo Apache faltante: ${mod}"
+        fi
+
+    done
+
+    echo
+
+    # Si faltan paquetes
+    if [ ${#FALTANTES[@]} -gt 0 ]; then
+
+        echo -e "${YELLOW}Faltan dependencias:${NC}"
+        printf ' - %s\n' "${FALTANTES[@]}"
+        echo
+
+        read -p "¿Deseas instalarlas ahora? (s/n): " INSTALAR_DEP
+
+        if [[ "$INSTALAR_DEP" =~ ^[sS]$ ]]; then
+
+            echo
+            echo -e "${CYAN}Instalando dependencias...${NC}"
+            sudo apt update
+            sudo apt install -y "${FALTANTES[@]}"
+
+            echo
+            echo -e "${CYAN}Habilitando módulos Apache...${NC}"
+
+            for mod in "${MODULOS_APACHE[@]}"; do
+                sudo a2enmod "$mod" >/dev/null 2>&1
+            done
+
+            sudo systemctl restart apache2
+
+            echo
+            echo -e "${GREEN}✅ Dependencias instaladas correctamente.${NC}"
+
+        else
+
+            echo
+            echo -e "${RED}⚠ Algunas funciones podrían no funcionar.${NC}"
+
+        fi
+
+    else
+
+        echo -e "${GREEN}✅ Todas las dependencias están instaladas.${NC}"
+
+    fi
+
+    echo
+    read -p "Presiona ENTER para continuar..."
+}
+
+# =========================================================
+# CREAR VHOST
+# =========================================================
+
 create_vhost() {
+
+    verificar_dependencias
+
     echo "=== Crear nuevo VirtualHost SSL para Jellyfin ==="
 
     read -p "ServerName (ej: jellyfin-server.com): " SERVERNAME
@@ -61,41 +177,79 @@ sudo tee "$CONF_PATH" > /dev/null <<EOF
 </VirtualHost>
 EOF
 
-    echo "✅ Archivo creado: ${CONF_PATH}"
+    echo
+    echo -e "${GREEN}✅ Archivo creado:${NC} ${CONF_PATH}"
 
     read -p "¿Habilitar sitio y recargar Apache? (s/n): " ENABLE
+
     if [[ "$ENABLE" =~ ^[sS]$ ]]; then
-        sudo a2enmod ssl proxy proxy_http proxy_wstunnel headers rewrite
+
         sudo a2ensite "${SERVERNAME}.conf"
         sudo systemctl reload apache2
-        echo "✅ Sitio habilitado."
+
+        echo
+        echo -e "${GREEN}✅ Sitio habilitado.${NC}"
+
     else
-        echo "ℹ️ Puedes habilitarlo luego con:"
-        echo "   sudo a2ensite ${SERVERNAME}.conf && sudo systemctl reload apache2"
+
+        echo
+        echo -e "${YELLOW}ℹ Puedes habilitarlo luego con:${NC}"
+        echo "sudo a2ensite ${SERVERNAME}.conf && sudo systemctl reload apache2"
+
     fi
+
+    echo
+    read -p "Presiona ENTER para continuar..."
 }
+
+# =========================================================
+# INSTALAR JELLYFIN
+# =========================================================
 
 install_jellyfin() {
-    echo "=== Instalando Jellyfin ==="
+
+    verificar_dependencias
+
+    echo
+    echo -e "${CYAN}=== Instalando Jellyfin ===${NC}"
+    echo
+
     curl -fsSL "$SCRIPT_URL" | sudo bash
+
     sudo usermod -aG www-data jellyfin
     sudo systemctl restart jellyfin
+
+    echo
+    echo -e "${GREEN}✅ Jellyfin instalado correctamente.${NC}"
+
+    echo
+    read -p "Presiona ENTER para continuar..."
 }
 
+# =========================================================
+# DESINSTALAR JELLYFIN
+# =========================================================
+
 uninstall_jellyfin() {
+
     echo "=== Desinstalación segura de Jellyfin ==="
     echo "Esto NO toca Nextcloud ni otras aplicaciones."
 
     read -p "¿Confirmas eliminar Jellyfin? (s/n): " CONFIRM
-    [[ "$CONFIRM" =~ ^[sS]$ ]] || { echo "Cancelado."; return; }
 
+    [[ "$CONFIRM" =~ ^[sS]$ ]] || {
+        echo "Cancelado."
+        return
+    }
+
+    echo
     echo "➤ Deteniendo servicio..."
     sudo systemctl stop jellyfin 2>/dev/null
 
     echo "➤ Eliminando paquetes..."
     sudo apt remove --purge -y jellyfin jellyfin-server jellyfin-web jellyfin-ffmpeg 2>/dev/null
 
-    echo "➤ Eliminando carpetas (sin tocar Nextcloud)..."
+    echo "➤ Eliminando carpetas..."
     sudo rm -rf /var/lib/jellyfin
     sudo rm -rf /etc/jellyfin
     sudo rm -f /etc/apt/sources.list.d/jellyfin.sources
@@ -104,36 +258,67 @@ uninstall_jellyfin() {
     echo "➤ Actualizando repos..."
     sudo apt update
 
-    echo "✅ Jellyfin desinstalado correctamente."
+    echo
+    echo -e "${GREEN}✅ Jellyfin desinstalado correctamente.${NC}"
+
+    echo
+    read -p "Presiona ENTER para continuar..."
 }
-# ===== Jellyfin Tools =====
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-NC='\033[0m'
+
+# =========================================================
+# MENU PRINCIPAL
+# =========================================================
+
 menu() {
+
     while true; do
+
         clear
+
         echo -e "${WHITE}===============================================${NC}"
-echo -e "${CYAN}            Jellyfin Tools - Cesar${NC}"
-echo -e "${WHITE}===============================================${NC}"
+        echo -e "${CYAN}         Jellyfin Tools - Cesar${NC}"
+        echo -e "${WHITE}===============================================${NC}"
 
-echo -e "${YELLOW}1)${NC} ${WHITE}Instalar Jellyfin${NC}"
-echo -e "${YELLOW}2)${NC} ${WHITE}Desinstalar Jellyfin (seguro, no toca Nextcloud)${NC}"
-echo -e "${YELLOW}3)${NC} ${WHITE}Crear VirtualHost SSL para Jellyfin${NC}"
-echo -e "${YELLOW}0)${NC} ${CYAN}Salir${NC}"
+        echo -e "${YELLOW}1)${NC} ${WHITE}Instalar Jellyfin${NC}"
+        echo -e "${YELLOW}2)${NC} ${WHITE}Desinstalar Jellyfin${NC}"
+        echo -e "${YELLOW}3)${NC} ${WHITE}Crear VirtualHost SSL${NC}"
+        echo -e "${YELLOW}4)${NC} ${WHITE}Verificar dependencias${NC}"
+        echo -e "${YELLOW}0)${NC} ${CYAN}Salir${NC}"
 
-echo -e "${WHITE}===============================================${NC}"
+        echo -e "${WHITE}===============================================${NC}"
 
-read -p "Elige una opción: " OPT
+        read -p "Elige una opción: " OPT
 
         case "$OPT" in
-            1) install_jellyfin ;;
-            2) uninstall_jellyfin ;;
-            3) create_vhost ;;
-            4) exit 0 ;;
-            *) echo "Opción inválida"; sleep 2 ;;
+
+            1)
+                install_jellyfin
+            ;;
+
+            2)
+                uninstall_jellyfin
+            ;;
+
+            3)
+                create_vhost
+            ;;
+
+            4)
+                verificar_dependencias
+            ;;
+
+            0)
+                exit 0
+            ;;
+
+            *)
+                echo
+                echo -e "${RED}Opción inválida${NC}"
+                sleep 2
+            ;;
+
         esac
+
     done
 }
 
