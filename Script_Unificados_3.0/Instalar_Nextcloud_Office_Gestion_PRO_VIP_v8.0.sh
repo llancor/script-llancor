@@ -6546,7 +6546,7 @@ case $op in
 8) setup_database ;;
 9) uninstall_nextcloud ;;
 10) status_services ;;
-11) update_script ;;
+11) download_script ;;
 0) exit ;;
 
 *)
