@@ -1,7 +1,6 @@
 #!/bin/bash
 # ==============================================================================
 #  ADMIN NEXTCLOUD & MYSQL - MENU UNIFICADO (TODO EN UNO)
-#  Version: 3.7 (colores ajustados, menus corregidos)
 # ==============================================================================
 
 # ========= Colores =========
