@@ -302,7 +302,7 @@ RESET='\033[0m'
 while true; do
     clear
 echo -e "${WHITE}===============================================${RESET}"
-echo -e "${CYAN}        Instalador OrangeHRM v5.7${RESET}"
+echo -e "${CYAN}        Instalador OrangeHRM v20 ${RESET}"
 echo -e "${WHITE}===============================================${RESET}"
 
 echo -e "${YELLOW}1)${RESET} ${WHITE}Instalar nueva instancia de OrangeHRM${RESET}"
