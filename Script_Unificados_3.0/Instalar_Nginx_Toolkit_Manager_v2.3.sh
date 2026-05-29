@@ -658,7 +658,7 @@ done
 
 while true; do
 
-header "GESTOR NGINX v2.2"
+header "MENU GESTOR NGINX v2.3"
 
 echo -e "${YELLOW}1)${RESET} Verificar dependencias"
 echo -e "${YELLOW}2)${RESET} Gestión Nginx UI"
