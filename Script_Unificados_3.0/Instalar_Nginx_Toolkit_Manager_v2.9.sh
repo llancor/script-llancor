@@ -727,163 +727,80 @@ estado_http() {
 
     pause
 }
-backup_restore() {
+migrate_npm_export() {
 
-    NPM_DIR="/opt/nginx-proxy-manager"
     BACKUP_DIR="/root/backup_nginx"
-
     mkdir -p "$BACKUP_DIR"
 
-    while true; do
-        clear
+    CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -Ei "npm|proxy|nginx" | head -n 1)
 
-        echo -e "${CYAN}==============================${RESET}"
-        echo -e "${CYAN}   NGINX PROXY MANAGER${RESET}"
-        echo -e "${CYAN}==============================${RESET}"
-        echo -e "${YELLOW}1)${RESET} 📦 Backup configuración"
-        echo -e "${YELLOW}2)${RESET} 📥 Restaurar backup"
-        echo -e "${YELLOW}3)${RESET} 🔄 Actualizar a versión estable"
-        echo -e "${YELLOW}4)${RESET} 📊 Estado"
-        echo -e "${YELLOW}0)${RESET} ⬅ Volver"
-        echo -e "${CYAN}==============================${RESET}"
+    if [ -z "$CONTAINER" ]; then
+        echo "❌ No se encontró NPM"
+        return 1
+    fi
 
-        read -rp "Selecciona opción: " opt
+    echo "🚀 EXPORTANDO MIGRACIÓN NPM (OFFLINE)"
 
-        case $opt in
+    docker stop "$CONTAINER"
 
-            1)
-                clear
-                echo -e "${GREEN}📦 Creando backup NPM...${RESET}"
+    DATE=$(date +%Y-%m-%d_%H-%M)
+    FILE="$BACKUP_DIR/npm_migration_$DATE.tar.gz"
 
-                DATE=$(date +%Y-%m-%d_%H-%M)
-                TMP="/tmp/npm_backup_$DATE"
-                FILE="$BACKUP_DIR/npm_backup_$DATE.tar.gz"
+    tar -czf "$FILE" \
+        /opt/nginx-proxy-manager/data \
+        /opt/nginx-proxy-manager/letsencrypt \
+        2>/dev/null
 
-                mkdir -p "$TMP"
+    docker start "$CONTAINER"
 
-                cd "$NPM_DIR" || {
-                    echo "❌ No existe $NPM_DIR"
-                    sleep 2
-                    continue
-                }
+    echo "✅ MIGRACIÓN LISTA:"
+    echo "$FILE"
 
-                docker compose down
+    echo
+    echo "📦 Copia este archivo al nuevo servidor:"
+    echo "$FILE"
+}
+migrate_npm_import() {
 
-                cp -a "$NPM_DIR/data" "$TMP/" 2>/dev/null || true
-                cp -a "$NPM_DIR/letsencrypt" "$TMP/" 2>/dev/null || true
+    echo "📥 RESTAURAR MIGRACIÓN NPM"
 
-                docker compose up -d
+    BACKUP_DIR="/root/backup_nginx"
 
-                tar -czf "$FILE" -C "$TMP" .
-                rm -rf "$TMP"
+    ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null || {
+        echo "❌ No hay backups"
+        return 1
+    }
 
-                echo -e "${GREEN}✅ Backup creado:${RESET}"
-                echo "$FILE"
-                read -rp "ENTER para continuar..."
-                ;;
+    read -rp "📦 Nombre del archivo: " FILE
 
-            2)
-                clear
-                echo -e "${CYAN}📁 Backups disponibles:${RESET}"
-                echo
+    FILE="$BACKUP_DIR/$FILE"
 
-                mapfile -t BACKUPS < <(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+    if [ ! -f "$FILE" ]; then
+        echo "❌ Archivo no existe"
+        return 1
+    fi
 
-                if [ ${#BACKUPS[@]} -eq 0 ]; then
-                    echo -e "${RED}❌ No hay backups disponibles${RESET}"
-                    read -rp "ENTER..."
-                    continue
-                fi
+    CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -Ei "npm|proxy|nginx" | head -n 1)
 
-                i=1
-                for b in "${BACKUPS[@]}"; do
-                    echo -e "${YELLOW}$i)${RESET} $(basename "$b")"
-                    ((i++))
-                done
+    echo "⏸ Deteniendo NPM..."
+    [ -n "$CONTAINER" ] && docker stop "$CONTAINER"
 
-                echo
-                read -rp "Selecciona backup: " sel
+    echo "🧹 Limpiando datos..."
+    rm -rf /opt/nginx-proxy-manager/data
+    rm -rf /opt/nginx-proxy-manager/letsencrypt
 
-                FILE="${BACKUPS[$((sel-1))]}"
+    echo "📦 Restaurando backup..."
+    tar -xzf "$FILE" -C /
 
-                if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
-                    echo -e "${RED}❌ Selección inválida${RESET}"
-                    read -rp "ENTER..."
-                    continue
-                fi
+    echo "🔐 Corrigiendo permisos (CRÍTICO)..."
+    chown -R 1000:1000 /opt/nginx-proxy-manager/data
+    chown -R 1000:1000 /opt/nginx-proxy-manager/letsencrypt
 
-                TMP="/tmp/npm_restore"
+    echo "▶️ Iniciando contenedor..."
+    [ -n "$CONTAINER" ] && docker start "$CONTAINER"
 
-                mkdir -p "$TMP"
-                tar -xzf "$FILE" -C "$TMP"
-
-                cd "$NPM_DIR" || continue
-
-                docker compose down
-
-                rm -rf data letsencrypt
-
-                cp -a "$TMP/data" "$NPM_DIR/" 2>/dev/null || true
-                cp -a "$TMP/letsencrypt" "$NPM_DIR/" 2>/dev/null || true
-
-                rm -rf "$TMP"
-
-                docker compose up -d
-
-                echo -e "${GREEN}✅ Restauración completada${RESET}"
-                read -rp "ENTER para continuar..."
-                ;;
-
-            3)
-                clear
-                echo -e "${YELLOW}🔄 Actualizando NPM...${RESET}"
-
-                DATE=$(date +%Y-%m-%d_%H-%M)
-                TMP="/tmp/npm_backup_$DATE"
-                FILE="$BACKUP_DIR/npm_backup_$DATE.tar.gz"
-
-                mkdir -p "$TMP"
-
-                cd "$NPM_DIR" || continue
-
-                docker compose down
-
-                cp -a "$NPM_DIR/data" "$TMP/" 2>/dev/null || true
-                cp -a "$NPM_DIR/letsencrypt" "$TMP/" 2>/dev/null || true
-
-                docker compose up -d
-
-                tar -czf "$FILE" -C "$TMP" .
-                rm -rf "$TMP"
-
-                echo -e "${GREEN}📦 Backup previo creado:${RESET}"
-                echo "$FILE"
-
-                docker compose pull
-                docker compose down
-                docker compose up -d
-
-                echo -e "${GREEN}✅ NPM actualizado${RESET}"
-                read -rp "ENTER para continuar..."
-                ;;
-
-            4)
-                clear
-                echo -e "${CYAN}📊 Estado NPM:${RESET}"
-                cd "$NPM_DIR" && docker compose ps
-                read -rp "ENTER para continuar..."
-                ;;
-
-            0)
-                break
-                ;;
-
-            *)
-                echo -e "${RED}❌ Opción inválida${RESET}"
-                sleep 1
-                ;;
-        esac
-    done
+    echo "✅ MIGRACIÓN COMPLETADA"
+    echo "🌐 Accede a: http://IP:81"
 }
 backup_restore_all() {
 
@@ -1106,8 +1023,9 @@ echo -e "${YELLOW}4)${RESET} Reiniciar"
 echo -e "${YELLOW}5)${RESET} Bloquear puerto 80"
 echo -e "${YELLOW}6)${RESET} Desbloquear puerto 80"
 echo -e "${YELLOW}7)${RESET} Estado puerto 80"
-echo -e "${YELLOW}8)${CYAN} Respadar/Restaurar Ajustes Nginx"
-echo -e "${YELLOW}9)${CYAN} Respadar/Restaurar Ajustes Nginx_Portainer / Servers"
+echo -e "${YELLOW}8)${CYAN} Respadar/Restaurar Ajustes Nginx_Portainer / Automatica"
+echo -e "${YELLOW}9)${RESET} 📤 Exportar migración NPM"
+echo -e "${YELLOW}10)${RESET} 📥 Importar migración NPM"
 echo -e "${YELLOW}0)${RESET} Volver"
 
 echo
@@ -1121,8 +1039,9 @@ case $op in
 5) bloquear_http ;;
 6) desbloquear_http ;;
 7) estado_http ;;
-8) backup_restore ;;
-9) backup_restore_all ;;
+8) backup_restore_all ;;
+9) migrate_npm_export ;;
+10) migrate_npm_import ;;
 0) break ;;
 esac
 
