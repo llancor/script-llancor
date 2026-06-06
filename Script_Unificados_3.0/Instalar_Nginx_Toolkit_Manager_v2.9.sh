@@ -885,6 +885,196 @@ backup_restore() {
         esac
     done
 }
+backup_restore_all() {
+
+    BACKUP_DIR="/root/backup_nginx"
+    mkdir -p "$BACKUP_DIR"
+
+    select_container() {
+
+        echo
+        echo "📦 Contenedores disponibles:"
+        echo
+
+        mapfile -t CONTAINERS < <(docker ps -a --format "{{.Names}}")
+
+        if [ ${#CONTAINERS[@]} -eq 0 ]; then
+            echo "❌ No hay contenedores"
+            return 1
+        fi
+
+        i=1
+        for c in "${CONTAINERS[@]}"; do
+            echo "$i) $c"
+            ((i++))
+        done
+
+        echo
+        read -rp "Selecciona contenedor: " sel
+
+        CONTAINER="${CONTAINERS[$((sel-1))]}"
+
+        if [ -z "$CONTAINER" ]; then
+            echo "❌ Selección inválida"
+            return 1
+        fi
+
+        echo "✅ Usando contenedor: $CONTAINER"
+    }
+
+    while true; do
+        clear
+
+        echo -e "${CYAN}==============================${RESET}"
+        echo -e "${CYAN}   DOCKER BACKUP MANAGER${RESET}"
+        echo -e "${CYAN}==============================${RESET}"
+        echo -e "${YELLOW}1)${RESET} 📦 Backup contenedor"
+        echo -e "${YELLOW}2)${RESET} 📥 Restaurar backup"
+        echo -e "${YELLOW}3)${RESET} 🔄 Reiniciar contenedor"
+        echo -e "${YELLOW}4)${RESET} 📊 Estado contenedor"
+        echo -e "${YELLOW}0)${RESET} ⬅ Volver"
+        echo -e "${CYAN}==============================${RESET}"
+
+        read -rp "Selecciona opción: " opt
+
+        case $opt in
+
+            1)
+                clear
+                echo "📦 BACKUP DOCKER"
+
+                select_container || continue
+
+                DATE=$(date +%Y-%m-%d_%H-%M)
+                TMP="/tmp/docker_backup_$DATE"
+                FILE="$BACKUP_DIR/${CONTAINER}_backup_$DATE.tar.gz"
+
+                mkdir -p "$TMP"
+
+                echo "⏸ Deteniendo $CONTAINER..."
+                docker stop "$CONTAINER"
+
+                echo "📁 Copiando datos del contenedor..."
+
+                VOLUMES=$(docker inspect "$CONTAINER" \
+                    | grep -A 20 Mounts \
+                    | grep Source \
+                    | awk -F '"' '{print $4}')
+
+                for V in $VOLUMES; do
+                    NAME=$(basename "$V")
+                    mkdir -p "$TMP/$NAME"
+                    cp -a "$V/." "$TMP/$NAME/" 2>/dev/null || true
+                done
+
+                echo "▶️ Iniciando $CONTAINER..."
+                docker start "$CONTAINER"
+
+                tar -czf "$FILE" -C "$TMP" .
+                rm -rf "$TMP"
+
+                echo "✅ Backup creado:"
+                echo "$FILE"
+                read -rp "ENTER..."
+                ;;
+
+            2)
+                clear
+                echo "📥 RESTAURAR BACKUP"
+
+                echo
+                echo "📁 Backups disponibles:"
+                echo
+
+                mapfile -t BACKUPS < <(ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+                if [ ${#BACKUPS[@]} -eq 0 ]; then
+                    echo "❌ No hay backups"
+                    read -rp "ENTER..."
+                    continue
+                fi
+
+                i=1
+                for b in "${BACKUPS[@]}"; do
+                    echo "$i) $(basename "$b")"
+                    ((i++))
+                done
+
+                echo
+                read -rp "Selecciona backup: " sel
+
+                FILE="${BACKUPS[$((sel-1))]}"
+
+                if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+                    echo "❌ Selección inválida"
+                    read -rp "ENTER..."
+                    continue
+                fi
+
+                select_container || continue
+
+                TMP="/tmp/docker_restore"
+
+                mkdir -p "$TMP"
+                tar -xzf "$FILE" -C "$TMP"
+
+                echo "⏸ Deteniendo $CONTAINER..."
+                docker stop "$CONTAINER" || true
+
+                VOLUMES=$(docker inspect "$CONTAINER" \
+                    | grep -A 20 Mounts \
+                    | grep Source \
+                    | awk -F '"' '{print $4}')
+
+                for V in $VOLUMES; do
+                    NAME=$(basename "$V")
+                    echo " - restaurando $NAME"
+                    rm -rf "$V"/*
+                    cp -a "$TMP/$NAME/." "$V/" 2>/dev/null || true
+                done
+
+                docker start "$CONTAINER"
+
+                rm -rf "$TMP"
+
+                echo "✅ Restauración completada"
+                read -rp "ENTER..."
+                ;;
+
+            3)
+                clear
+                echo "🔄 REINICIAR CONTENEDOR"
+
+                select_container || continue
+
+                docker restart "$CONTAINER"
+
+                echo "✅ Reiniciado: $CONTAINER"
+                read -rp "ENTER..."
+                ;;
+
+            4)
+                clear
+                echo "📊 ESTADO CONTENEDOR"
+
+                select_container || continue
+
+                docker ps -a | grep "$CONTAINER" || echo "❌ No está activo"
+
+                read -rp "ENTER..."
+                ;;
+
+            0)
+                break
+                ;;
+
+            *)
+                echo "❌ Opción inválida"
+                sleep 1
+                ;;
+        esac
+    done
+}
 # ==========================================================
 # MENUS
 # ==========================================================
@@ -933,6 +1123,7 @@ echo -e "${YELLOW}5)${RESET} Bloquear puerto 80"
 echo -e "${YELLOW}6)${RESET} Desbloquear puerto 80"
 echo -e "${YELLOW}7)${RESET} Estado puerto 80"
 echo -e "${YELLOW}8)${CYAN} Respadar/Restaurar Ajustes Nginx"
+echo -e "${YELLOW}9)${CYAN} Respadar/Restaurar Ajustes Nginx_Portainer_all"
 echo -e "${YELLOW}0)${RESET} Volver"
 
 echo
@@ -947,6 +1138,7 @@ case $op in
 6) desbloquear_http ;;
 7) estado_http ;;
 8) backup_restore ;;
+9) backup_restore_all ;;
 0) break ;;
 esac
 
