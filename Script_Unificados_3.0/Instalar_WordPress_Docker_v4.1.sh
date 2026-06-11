@@ -1,0 +1,793 @@
+#!/bin/bash
+set -e
+
+# =========================================================
+# BASE
+# =========================================================
+
+BASE_DIR="/opt/wordpress"
+SITES_DIR="$BASE_DIR/sites"
+BACKUP_DIR="$BASE_DIR/backups"
+PHP_DIR="$BASE_DIR/php"
+DATA_DIR="$BASE_DIR/data"
+CONFIG_DIR="$BASE_DIR/config"
+
+mkdir -p "$SITES_DIR" "$BACKUP_DIR" "$PHP_DIR" "$DATA_DIR" "$CONFIG_DIR"
+
+# =========================================================
+# COLORES
+# =========================================================
+
+GREEN="\e[1;32m"
+RED="\e[1;31m"
+YELLOW="\e[1;33m"
+CYAN="\e[1;36m"
+WHITE="\e[1;37m"
+RESET="\e[0m"
+
+# =========================================================
+# DOCKER COMPOSE COMPATIBLE (FIX CLAVE)
+# =========================================================
+
+if docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+else
+    DOCKER_COMPOSE=""
+fi
+
+# =========================================================
+# UI
+# =========================================================
+
+header() {
+clear
+echo -e "${CYAN}"
+echo -e "${CYAN}========================================${RESET}"
+echo -e "${WHITE}     WORDPRESS MANAGER DOCKER v4.1     ${RESET}"
+echo -e "${CYAN}========================================${RESET}"
+echo -e "${RESET}"
+}
+
+pause() {
+read -rp "Presione ENTER para continuar..."
+}
+
+# =========================================================
+# DEPENDENCIAS
+# =========================================================
+
+instalar_dependencias() {
+
+    echo "Verificando dependencias..."
+
+    if ! command -v docker >/dev/null 2>&1; then
+
+        echo "Instalando Docker..."
+
+        apt update
+        apt install -y curl wget nano unzip tar openssl ca-certificates
+
+        curl -fsSL https://get.docker.com | sh
+
+        systemctl enable docker
+        systemctl start docker
+    else
+        echo "Docker ya está instalado."
+    fi
+
+    # Docker Compose v2 plugin (CORREGIDO)
+    if docker compose version >/dev/null 2>&1; then
+        echo "Docker Compose v2 OK"
+    else
+        echo "Instalando Docker Compose plugin..."
+
+        mkdir -p /usr/local/lib/docker/cli-plugins
+
+        COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d '"' -f4)
+
+        curl -L "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+
+        chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    fi
+
+    chmod 700 "$CONFIG_DIR" "$BACKUP_DIR"
+    touch "$CONFIG_DIR/sites.db"
+}
+
+# =========================================================
+# PHP CONFIG
+# =========================================================
+
+crear_php_ini() {
+
+mkdir -p "$PHP_DIR"
+
+cat > "$PHP_DIR/uploads.ini" <<EOF
+upload_max_filesize = 2048M
+post_max_size = 2048M
+max_file_uploads = 200
+
+memory_limit = 1024M
+max_execution_time = 600
+max_input_time = 600
+max_input_vars = 10000
+
+opcache.enable=1
+opcache.enable_cli=1
+opcache.memory_consumption=256
+opcache.interned_strings_buffer=32
+opcache.max_accelerated_files=20000
+
+realpath_cache_size=4096K
+realpath_cache_ttl=600
+
+expose_php=Off
+cgi.fix_pathinfo=0
+
+date.timezone=America/Santiago
+EOF
+
+chmod 644 "$PHP_DIR/uploads.ini"
+}
+
+# =========================================================
+# MARIADB STACK (FIX HEALTHCHECK + COMPOSE)
+# =========================================================
+
+crear_stack_mariadb() {
+
+    mkdir -p "$DATA_DIR"
+
+    if docker ps --format '{{.Names}}' | grep -q '^wordpress-db$'; then
+        echo "MariaDB ya está funcionando."
+        return
+    fi
+
+    if docker ps -a --format '{{.Names}}' | grep -q '^wordpress-db$'; then
+        echo "Iniciando MariaDB existente..."
+        docker start wordpress-db
+        return
+    fi
+
+    echo "Creando MariaDB..."
+
+    DB_ROOT_PASS=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 24)
+    echo "$DB_ROOT_PASS" > "$CONFIG_DIR/mysql_root_password"
+    chmod 600 "$CONFIG_DIR/mysql_root_password"
+
+cat > "$BASE_DIR/docker-compose.yml" <<EOF
+services:
+
+  mariadb:
+    image: mariadb:11
+    container_name: wordpress-db
+    restart: unless-stopped
+
+    command:
+      - --max_allowed_packet=1024M
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      TZ: America/Santiago
+
+    volumes:
+      - ${DATA_DIR}:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-uroot", "-p${DB_ROOT_PASS}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - wordpress
+
+networks:
+  wordpress:
+    name: wordpress
+EOF
+
+    cd "$BASE_DIR"
+    $DOCKER_COMPOSE up -d
+
+    echo "Esperando MariaDB..."
+
+    until docker exec wordpress-db mariadb-admin ping -uroot -p"$DB_ROOT_PASS" >/dev/null 2>&1; do
+        sleep 2
+    done
+
+    echo "MariaDB lista."
+}
+
+# =========================================================
+# INSTALACIÓN INICIAL
+# =========================================================
+
+instalacion_inicial() {
+
+    header
+
+    echo "INSTALACIÓN INICIAL WORDPRESS MANAGER"
+
+    instalar_dependencias
+    crear_php_ini
+    crear_stack_mariadb
+
+    echo "Instalación completada."
+    pause
+}
+# =========================================================
+# MYSQL ROOT PASSWORD
+# =========================================================
+
+obtener_mysql_root() {
+
+    local PASS_FILE="$CONFIG_DIR/mysql_root_password"
+
+    if [ ! -f "$PASS_FILE" ]; then
+        echo "ERROR: No existe password MySQL" >&2
+        return 1
+    fi
+
+    tr -d '\r\n' < "$PASS_FILE"
+}
+
+# =========================================================
+# PUERTO SEGURO
+# =========================================================
+
+puerto_libre() {
+
+    local PUERTO=8081
+
+    while ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$PUERTO$"; do
+        PUERTO=$((PUERTO + 1))
+    done
+
+    echo "$PUERTO"
+}
+
+# =========================================================
+# SIGUIENTE WP INDEX
+# =========================================================
+
+obtener_siguiente_wp() {
+
+    if [ ! -f "$CONFIG_DIR/sites.db" ]; then
+        echo 1
+        return
+    fi
+
+    awk -F'|' '$1 ~ /^wordpress[0-9]+$/ {
+        gsub("wordpress","",$1)
+        print $1
+    }' "$CONFIG_DIR/sites.db" | sort -n | tail -1 | awk '{print $1+1}'
+}
+
+# =========================================================
+# CREAR WORDPRESS (FIX COMPLETO)
+# =========================================================
+
+crear_wordpress() {
+
+    header
+
+    NUMERO=$(wc -l < "$CONFIG_DIR/sites.db" 2>/dev/null || echo 0)
+    NUMERO=$((NUMERO + 1))
+
+    SITIO="wordpress${NUMERO}"
+    PUERTO=$(puerto_libre)
+
+    DB_NAME="wp${NUMERO}"
+    DB_USER="wp${NUMERO}"
+    DB_PASS=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 20)
+
+    ROOT_PASS=$(obtener_mysql_root)
+
+    mkdir -p "$SITES_DIR/$SITIO/html"
+
+    SQL="
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+"
+
+    docker exec -i wordpress-db mariadb -uroot -p"$ROOT_PASS" <<< "$SQL"
+
+cat > "$SITES_DIR/$SITIO/docker-compose.yml" <<EOF
+services:
+  ${SITIO}:
+    image: wordpress:php8.3-apache
+    container_name: ${SITIO}
+    restart: unless-stopped
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db:3306
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASS}
+    volumes:
+      - ./html:/var/www/html
+      - ${PHP_DIR}/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+    ports:
+      - "${PUERTO}:80"
+    networks:
+      - wordpress
+
+networks:
+  wordpress:
+    external: true
+EOF
+
+    cd "$SITES_DIR/$SITIO"
+    $DOCKER_COMPOSE up -d || {
+        echo "Error levantando WordPress"
+        pause
+        return
+    }
+
+    echo "${SITIO}|${PUERTO}|${DB_NAME}|${DB_USER}|${DB_PASS}" >> "$CONFIG_DIR/sites.db"
+    chmod 600 "$CONFIG_DIR/sites.db"
+
+    IP_LOCAL=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+    echo
+    echo "==========================================="
+    echo " WORDPRESS CREADO"
+    echo "==========================================="
+    echo "Sitio  : $SITIO"
+    echo "Puerto : $PUERTO"
+    echo "URL    : http://${IP_LOCAL}:${PUERTO}"
+    echo
+
+    pause
+}
+
+# =========================================================
+# LISTAR WORDPRESS (ROBUSTO)
+# =========================================================
+
+listar_wordpress() {
+
+    header
+
+    if [ ! -s "$CONFIG_DIR/sites.db" ]; then
+        echo "No existen sitios registrados."
+        pause
+        return
+    fi
+
+    IP_LOCAL=$(hostname -I 2>/dev/null | awk '{print $1}')
+
+    echo "=========================================================="
+    echo "INSTANCIAS WORDPRESS"
+    echo "=========================================================="
+    printf "%-15s %-8s %-12s %-12s %-10s\n" "SITIO" "PUERTO" "BD" "USUARIO" "ESTADO"
+    echo "----------------------------------------------------------"
+
+    while IFS='|' read -r SITIO PUERTO DB USER PASS; do
+
+        [ -z "$SITIO" ] && continue
+
+        if docker ps --format '{{.Names}}' | grep -qx "$SITIO"; then
+            ESTADO="ACTIVO"
+        else
+            ESTADO="DETENIDO"
+        fi
+
+        printf "%-15s %-8s %-12s %-12s %-10s\n" \
+            "$SITIO" "$PUERTO" "$DB" "$USER" "$ESTADO"
+
+    done < "$CONFIG_DIR/sites.db"
+
+    echo
+    echo "URLs:"
+    echo
+
+    while IFS='|' read -r SITIO PUERTO DB USER PASS; do
+        [ -z "$SITIO" ] && continue
+        echo "• $SITIO → http://${IP_LOCAL}:${PUERTO}"
+    done < "$CONFIG_DIR/sites.db"
+
+    pause
+}
+
+# =========================================================
+# VER CREDENCIALES (MEJORADO)
+# =========================================================
+
+ver_credenciales() {
+
+    header
+
+    if [ ! -s "$CONFIG_DIR/sites.db" ]; then
+        echo "No existen sitios registrados."
+        pause
+        return
+    fi
+
+    echo "================= CREDENCIALES WORDPRESS ================="
+    echo
+
+    while IFS='|' read -r SITIO PUERTO DB USER PASS; do
+
+        [ -z "$SITIO" ] && continue
+
+        echo "--------------------------------------------------"
+        echo "Sitio      : $SITIO"
+        echo "Puerto     : $PUERTO"
+        echo "DB         : $DB"
+        echo "Usuario    : $USER"
+        echo "Password   : $PASS"
+
+        if docker ps --format '{{.Names}}' | grep -qx "$SITIO"; then
+            echo "Estado     : ACTIVO"
+        else
+            echo "Estado     : DETENIDO"
+        fi
+
+    done < "$CONFIG_DIR/sites.db"
+
+    echo
+    echo "================= MYSQL ROOT ================="
+    echo
+
+    cat "$CONFIG_DIR/mysql_root_password" 2>/dev/null || echo "No disponible"
+
+    pause
+}
+
+# =========================================================
+# ELIMINAR WORDPRESS (SEGURO)
+# =========================================================
+eliminar_wordpress() {
+
+    header
+
+    if [ ! -s "$CONFIG_DIR/sites.db" ]; then
+        echo "No hay sitios registrados."
+        pause
+        return
+    fi
+
+    echo "Sitios disponibles:"
+    echo
+
+    awk -F'|' '{print NR") "$1" (Puerto "$2")"}' "$CONFIG_DIR/sites.db"
+
+    echo
+    read -rp "Número a eliminar (ENTER cancela): " N
+
+    if [ -z "$N" ]; then
+        echo "Cancelado."
+        pause
+        return
+    fi
+
+    if ! [[ "$N" =~ ^[0-9]+$ ]]; then
+        echo "Opción inválida."
+        pause
+        return
+    fi
+
+    LINEA=$(sed -n "${N}p" "$CONFIG_DIR/sites.db")
+
+    if [ -z "$LINEA" ]; then
+        echo "No existe ese número."
+        pause
+        return
+    fi
+
+    SITIO=$(echo "$LINEA" | cut -d'|' -f1)
+    DB=$(echo "$LINEA" | cut -d'|' -f3)
+    USER=$(echo "$LINEA" | cut -d'|' -f4)
+
+    echo
+    echo "Eliminando: $SITIO ($DB)"
+    echo
+
+    # Eliminar contenedor WordPress
+    if docker ps -a --format "{{.Names}}" | grep -qx "$SITIO"; then
+        docker rm -f "$SITIO"
+    fi
+
+    # Eliminar BD y usuario si MariaDB existe
+    if docker ps -a --format "{{.Names}}" | grep -qx "wordpress-db"; then
+
+        ROOT_PASS=$(obtener_mysql_root)
+
+        docker exec wordpress-db mariadb -uroot -p"$ROOT_PASS" <<EOF
+DROP DATABASE IF EXISTS \`$DB\`;
+DROP USER IF EXISTS '$USER'@'%';
+FLUSH PRIVILEGES;
+EOF
+
+    else
+        echo "MariaDB no existe. Omitiendo eliminación de BD."
+    fi
+
+    # Eliminar archivos del sitio
+    rm -rf "$SITES_DIR/$SITIO"
+
+    # Eliminar SOLO la línea seleccionada
+    TMP=$(mktemp)
+    sed "${N}d" "$CONFIG_DIR/sites.db" > "$TMP"
+    mv "$TMP" "$CONFIG_DIR/sites.db"
+
+    chmod 600 "$CONFIG_DIR/sites.db"
+
+    echo
+    echo "Sitio eliminado correctamente."
+    pause
+}
+
+# =========================================================
+# BACKUP COMPLETO (SEGURO)
+# =========================================================
+
+backup_bd() {
+
+    header
+
+    if [ ! -s "$CONFIG_DIR/sites.db" ]; then
+        echo "No existen sitios registrados."
+        pause
+        return
+    fi
+
+    FECHA=$(date +%Y%m%d_%H%M%S)
+    DESTINO="$BACKUP_DIR/$FECHA"
+
+    mkdir -p "$DESTINO"
+
+    ROOT_PASS=$(obtener_mysql_root) || {
+        echo "No se pudo obtener root MySQL"
+        pause
+        return
+    }
+
+    echo "Iniciando backup..."
+
+    while IFS='|' read -r SITIO PUERTO DB USER PASS; do
+
+        [ -z "$SITIO" ] && continue
+
+        echo "→ DB: $DB"
+
+        if ! docker exec wordpress-db mysqldump \
+            -uroot -p"$ROOT_PASS" \
+            --single-transaction \
+            --quick \
+            --skip-lock-tables \
+            "$DB" > "$DESTINO/${DB}.sql"; then
+
+            echo "ERROR backup DB: $DB"
+            continue
+        fi
+
+        if [ -d "$SITES_DIR/$SITIO/html" ]; then
+
+            echo "→ Files: $SITIO"
+
+            tar -czf "$DESTINO/${SITIO}_files.tar.gz" \
+                -C "$SITES_DIR/$SITIO" html
+
+        fi
+
+    done < "$CONFIG_DIR/sites.db"
+
+    cp "$CONFIG_DIR/sites.db" "$DESTINO/"
+    cp "$CONFIG_DIR/mysql_root_password" "$DESTINO/" 2>/dev/null || true
+
+    chmod 600 "$DESTINO/mysql_root_password" 2>/dev/null || true
+
+    echo "Empaquetando backup..."
+
+    tar -czf "$BACKUP_DIR/wordpress_backup_${FECHA}.tar.gz" \
+        -C "$BACKUP_DIR" "$FECHA"
+
+    rm -rf "$DESTINO"
+
+    echo
+    echo "BACKUP COMPLETADO:"
+    echo "$BACKUP_DIR/wordpress_backup_${FECHA}.tar.gz"
+    echo
+
+    ls -lh "$BACKUP_DIR/wordpress_backup_${FECHA}.tar.gz"
+
+    pause
+}
+
+# =========================================================
+# ACTUALIZAR CONTENEDORES (SEGURO)
+# =========================================================
+
+actualizar_contenedores() {
+
+    header
+
+    echo "Actualizando imágenes base..."
+
+    docker pull mariadb:11
+    docker pull wordpress:php8.3-apache
+
+    echo
+    echo "Recreando MariaDB..."
+    cd "$BASE_DIR"
+    $DOCKER_COMPOSE up -d mariadb
+
+    if [ -s "$CONFIG_DIR/sites.db" ]; then
+
+        while IFS='|' read -r SITIO PUERTO DB USER PASS; do
+
+            [ -z "$SITIO" ] && continue
+
+            if [ -d "$SITES_DIR/$SITIO" ]; then
+
+                echo "Actualizando $SITIO..."
+
+                cd "$SITES_DIR/$SITIO"
+                $DOCKER_COMPOSE up -d --force-recreate
+
+            fi
+
+        done < "$CONFIG_DIR/sites.db"
+    fi
+
+    echo
+    echo "Limpieza segura (SIN borrar todo)..."
+
+    docker container prune -f
+    docker network prune -f
+
+    echo
+    echo "Estado actual:"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+    pause
+}
+
+# =========================================================
+# REPARAR PERMISOS (OPTIMIZADO WORDPRESS)
+# =========================================================
+
+reparar_permisos() {
+
+    header
+
+    echo "Aplicando permisos optimizados..."
+
+    if [ ! -d "$BASE_DIR" ]; then
+        echo "No existe base"
+        pause
+        return
+    fi
+
+    # Base segura
+    find "$BASE_DIR" -type d -exec chmod 755 {} \;
+    find "$BASE_DIR" -type f -exec chmod 644 {} \;
+
+    # Seguridad crítica
+    chmod 600 "$CONFIG_DIR/mysql_root_password" 2>/dev/null || true
+    chmod 600 "$CONFIG_DIR/sites.db" 2>/dev/null || true
+
+    chmod 700 "$CONFIG_DIR"
+    chmod 700 "$BACKUP_DIR"
+
+    # WordPress específico (mejor práctica)
+    if [ -d "$SITES_DIR" ]; then
+
+        find "$SITES_DIR" -type d -exec chmod 755 {} \;
+        find "$SITES_DIR" -type f -exec chmod 644 {} \;
+
+        # wp-config seguridad
+        find "$SITES_DIR" -name "wp-config.php" -exec chmod 600 {} \;
+    fi
+
+    echo
+    echo "Permisos reparados correctamente."
+    pause
+}
+reparar_mariadb() {
+
+    header
+
+    echo "======================================"
+    echo " REPARACIÓN COMPLETA DE MARIADB"
+    echo "======================================"
+    echo
+    echo "ATENCIÓN:"
+    echo "- Se eliminarán TODAS las bases de datos."
+    echo "- Se generará una nueva contraseña root."
+    echo
+
+    read -rp "¿Continuar? (s/N): " RESP
+
+    [[ ! "$RESP" =~ ^[sS]$ ]] && {
+        echo "Cancelado."
+        pause
+        return
+    }
+
+    echo
+    echo "Deteniendo MariaDB..."
+
+    docker stop wordpress-db 2>/dev/null || true
+    docker rm wordpress-db 2>/dev/null || true
+
+    echo "Eliminando datos..."
+
+    rm -rf "$DATA_DIR"/*
+    rm -f "$CONFIG_DIR/mysql_root_password"
+
+    echo "Recreando MariaDB..."
+
+    crear_stack_mariadb
+
+    echo
+    echo "======================================"
+    echo " MARIADB REPARADA"
+    echo "======================================"
+    echo
+
+    echo "Nueva contraseña root:"
+    cat "$CONFIG_DIR/mysql_root_password"
+
+    echo
+    pause
+}
+# =========================================================
+# MENU PRINCIPAL (ROBUSTO)
+# =========================================================
+
+menu() {
+
+while true; do
+
+header
+
+
+
+echo -e "${GREEN} 1)${RESET} Instalacion Inicial"
+echo -e "${GREEN} 2)${RESET} Crear WordPress"
+echo -e "${GREEN} 3)${RESET} Listar WordPress"
+echo -e "${GREEN} 4)${RESET} Ver Credenciales"
+echo -e "${GREEN} 5)${RESET} Eliminar WordPress"
+echo -e "${GREEN} 6)${RESET} Backup Completo"
+echo -e "${GREEN} 7)${RESET} Actualizar Contenedores"
+echo -e "${GREEN} 8)${RESET} Reparar Permisos"
+echo -e "${GREEN} 9)${RESET} Mostrar URLs"
+
+echo
+echo -e "${YELLOW}10)${RESET} Reparar MariaDB"
+
+echo
+echo -e "${RED} 0)${RESET} Salir"
+echo
+
+read -rp "Seleccione opción: " OPCION
+
+case "$OPCION" in
+    1) instalacion_inicial ;;
+    2) crear_wordpress ;;
+    3) listar_wordpress ;;
+    4) ver_credenciales ;;
+    5) eliminar_wordpress ;;
+    6) backup_bd ;;
+    7) actualizar_contenedores ;;
+    8) reparar_permisos ;;
+    9) listar_wordpress ;;
+	10) reparar_mariadb ;;
+    0) exit 0 ;;
+    *) echo "Opción inválida" ; pause ;;
+esac
+
+done
+
+}
+menu
