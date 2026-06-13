@@ -24,23 +24,97 @@ header() {
 verificar_dependencias() {
 
     echo
-    echo "Verificando dependencias..."
+    echo -e "${CYAN}Verificando dependencias...${NC}"
     echo
 
+    # Docker
     if command -v docker >/dev/null 2>&1; then
-        echo "✅ Docker instalado"
+
+        echo -e "${GREEN}✅ Docker instalado${NC}"
         docker --version
+
     else
-        echo "❌ Docker no instalado"
+
+        echo -e "${RED}❌ Docker no instalado${NC}"
+        echo
+
+        read -rp "¿Desea instalar Docker? [S/n]: " RESP
+
+        if [[ ! "$RESP" =~ ^[nN]$ ]]; then
+
+            apt update
+
+            apt install -y \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+
+            install -m 0755 -d /etc/apt/keyrings
+
+            curl -fsSL https://download.docker.com/linux/debian/gpg \
+            -o /etc/apt/keyrings/docker.asc
+
+            chmod a+r /etc/apt/keyrings/docker.asc
+
+            echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+            https://download.docker.com/linux/debian \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+            > /etc/apt/sources.list.d/docker.list
+
+            apt update
+
+            apt install -y \
+                docker-ce \
+                docker-ce-cli \
+                containerd.io \
+                docker-buildx-plugin \
+                docker-compose-plugin
+
+            systemctl enable docker
+            systemctl start docker
+
+            echo
+            echo -e "${GREEN}✅ Docker instalado correctamente${NC}"
+        fi
     fi
 
     echo
 
+    # Docker Compose
     if docker compose version >/dev/null 2>&1; then
-        echo "✅ Docker Compose instalado"
+
+        echo -e "${GREEN}✅ Docker Compose instalado${NC}"
         docker compose version
+
     else
-        echo "❌ Docker Compose no instalado"
+
+        echo -e "${RED}❌ Docker Compose no instalado${NC}"
+        echo
+
+        read -rp "¿Desea instalar Docker Compose? [S/n]: " RESP
+
+        if [[ ! "$RESP" =~ ^[nN]$ ]]; then
+
+            apt update
+            apt install -y docker-compose-plugin
+
+            echo
+            echo -e "${GREEN}✅ Docker Compose instalado correctamente${NC}"
+        fi
+    fi
+
+    echo
+
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+
+        echo -e "${GREEN}"
+        echo "════════════════════════════════════"
+        echo "   SISTEMA LISTO PARA INSTALAR"
+        echo "════════════════════════════════════"
+        echo -e "${NC}"
+
     fi
 
     echo
