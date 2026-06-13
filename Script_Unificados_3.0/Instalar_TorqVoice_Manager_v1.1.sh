@@ -20,14 +20,15 @@ header() {
     echo -e "${NC}"
 
 }
-
 verificar_dependencias() {
 
     echo
     echo -e "${CYAN}Verificando dependencias...${NC}"
     echo
 
-    # Docker
+    # =========================================================
+    # DOCKER
+    # =========================================================
     if command -v docker >/dev/null 2>&1; then
 
         echo -e "${GREEN}✅ Docker instalado${NC}"
@@ -42,6 +43,8 @@ verificar_dependencias() {
 
         if [[ ! "$RESP" =~ ^[nN]$ ]]; then
 
+            set -e
+
             apt update
 
             apt install -y \
@@ -53,36 +56,43 @@ verificar_dependencias() {
             install -m 0755 -d /etc/apt/keyrings
 
             curl -fsSL https://download.docker.com/linux/debian/gpg \
-            -o /etc/apt/keyrings/docker.asc
+                -o /etc/apt/keyrings/docker.gpg
 
-            chmod a+r /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.gpg
 
             echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-            https://download.docker.com/linux/debian \
-            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-            > /etc/apt/sources.list.d/docker.list
+"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+$(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+                > /etc/apt/sources.list.d/docker.list
 
             apt update
 
-            apt install -y \
+            if apt install -y \
                 docker-ce \
                 docker-ce-cli \
                 containerd.io \
                 docker-buildx-plugin \
-                docker-compose-plugin
+                docker-compose-plugin; then
 
-            systemctl enable docker
-            systemctl start docker
+                systemctl enable docker
+                systemctl start docker
 
-            echo
-            echo -e "${GREEN}✅ Docker instalado correctamente${NC}"
+                echo
+                echo -e "${GREEN}✅ Docker instalado correctamente${NC}"
+
+            else
+                echo
+                echo -e "${RED}❌ Error instalando Docker${NC}"
+                return 1
+            fi
         fi
     fi
 
     echo
 
-    # Docker Compose
+    # =========================================================
+    # DOCKER COMPOSE
+    # =========================================================
     if docker compose version >/dev/null 2>&1; then
 
         echo -e "${GREEN}✅ Docker Compose instalado${NC}"
@@ -98,15 +108,27 @@ verificar_dependencias() {
         if [[ ! "$RESP" =~ ^[nN]$ ]]; then
 
             apt update
-            apt install -y docker-compose-plugin
 
-            echo
-            echo -e "${GREEN}✅ Docker Compose instalado correctamente${NC}"
+            if apt install -y docker-compose-plugin; then
+
+                echo
+                echo -e "${GREEN}✅ Docker Compose instalado correctamente${NC}"
+
+            else
+
+                echo
+                echo -e "${RED}❌ Error instalando Docker Compose${NC}"
+                echo -e "${YELLOW}👉 Verifica que el repositorio de Docker esté agregado correctamente${NC}"
+                return 1
+            fi
         fi
     fi
 
     echo
 
+    # =========================================================
+    # VALIDACIÓN FINAL REAL
+    # =========================================================
     if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
 
         echo -e "${GREEN}"
@@ -115,6 +137,15 @@ verificar_dependencias() {
         echo "════════════════════════════════════"
         echo -e "${NC}"
 
+    else
+
+        echo -e "${RED}"
+        echo "════════════════════════════════════"
+        echo "   FALTAN DEPENDENCIAS"
+        echo "════════════════════════════════════"
+        echo -e "${NC}"
+
+        return 1
     fi
 
     echo
