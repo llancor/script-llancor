@@ -320,25 +320,52 @@ pause
 
 actualizar_portainer() {
 
-header
+    header
 
-docker pull portainer/portainer-ce:latest
+    echo
+    echo "Actualizando Portainer..."
+    echo
 
-docker stop $PORTAINER_NAME
-docker rm $PORTAINER_NAME
+    docker pull portainer/portainer-ce:latest || {
 
-docker run -d \
-    --name $PORTAINER_NAME \
-    --restart unless-stopped \
-    -p 8000:8000 \
-    -p $PORTAINER_PORT:9000 \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    -v portainer_data:/data \
-    portainer/portainer-ce:latest
+        echo
+        echo "Error descargando la imagen."
+        echo
 
-success "Portainer actualizado"
+        pause
+        return 1
 
-pause
+    }
+
+    docker stop "$PORTAINER_NAME" 2>/dev/null || true
+    docker rm "$PORTAINER_NAME" 2>/dev/null || true
+
+    docker run -d \
+        --name "$PORTAINER_NAME" \
+        --restart unless-stopped \
+        -p 8000:8000 \
+        -p "$PORTAINER_PORT":9000 \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v portainer_data:/data \
+        portainer/portainer-ce:latest
+
+    sleep 5
+
+    if docker ps --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
+
+        success "Portainer actualizado correctamente"
+
+    else
+
+        echo
+        echo "Error al iniciar Portainer."
+        echo
+
+        docker logs "$PORTAINER_NAME" --tail 50
+
+    fi
+
+    pause
 
 }
 
