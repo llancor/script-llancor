@@ -866,7 +866,7 @@ echo
 echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
 echo -e "${GREEN} 11)${RESET} Agrgar DNS a Instancia de WORDPRESS"
 echo
-echo -e "${YELLOW} 11)${RESET} Reparar MariaDB"
+echo -e "${YELLOW} 12)${RESET} Reparar MariaDB"
 
 echo
 echo -e "${RED} 0)${RESET} Salir"
