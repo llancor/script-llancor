@@ -765,6 +765,82 @@ verificar_docker() {
 
     echo "Docker operativo."
 }
+configurar_dns_wordpress() {
+
+    echo
+    echo -e "${CYAN}====================================${NC}"
+    echo -e "${CYAN}     CONFIGURAR DNS WORDPRESS       ${NC}"
+    echo -e "${CYAN}====================================${NC}"
+    echo
+
+    mapfile -t WORDPRESS < <(
+        docker ps --format "{{.Names}}" | while read -r c; do
+            docker exec "$c" test -f /var/www/html/wp-config.php 2>/dev/null && echo "$c"
+        done
+    )
+
+    if [ ${#WORDPRESS[@]} -eq 0 ]; then
+        echo -e "${RED}❌ No se encontraron contenedores WordPress${NC}"
+        read -rp "ENTER para continuar..."
+        return
+    fi
+
+    echo -e "${WHITE}Instancias encontradas:${NC}"
+    echo
+
+    for i in "${!WORDPRESS[@]}"; do
+        echo "$((i+1))) ${WORDPRESS[$i]}"
+    done
+
+    echo
+    read -rp "Seleccione una instancia: " OPCION
+
+    if ! [[ "$OPCION" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}❌ Opción inválida${NC}"
+        return
+    fi
+
+    CONTENEDOR="${WORDPRESS[$((OPCION-1))]}"
+
+    if [ -z "$CONTENEDOR" ]; then
+        echo -e "${RED}❌ Opción inválida${NC}"
+        return
+    fi
+
+    echo
+    read -rp "Ingrese el dominio (ej: torqueweb.llancor.com): " DOMINIO
+
+    if [ -z "$DOMINIO" ]; then
+        echo -e "${RED}❌ Debe ingresar un dominio${NC}"
+        return
+    fi
+
+    echo
+    echo -e "${YELLOW}Configurando ${CONTENEDOR}...${NC}"
+
+    docker exec "$CONTENEDOR" cp \
+        /var/www/html/wp-config.php \
+        /var/www/html/wp-config.php.bak
+
+    docker exec "$CONTENEDOR" sh -c "
+        sed -i '/WP_HOME/d' /var/www/html/wp-config.php
+        sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
+        sed -i \"/That's all, stop editing/i define('WP_HOME', 'https://${DOMINIO}');
+define('WP_SITEURL', 'https://${DOMINIO}');\" /var/www/html/wp-config.php
+    "
+
+    docker restart "$CONTENEDOR" >/dev/null 2>&1
+
+    echo
+    echo -e "${GREEN}✅ DNS configurado correctamente${NC}"
+    echo -e "${WHITE}Contenedor:${NC} $CONTENEDOR"
+    echo -e "${WHITE}Dominio:${NC} https://${DOMINIO}"
+    echo
+    echo -e "${GREEN}✅ Respaldo:${NC} wp-config.php.bak"
+    echo
+
+    read -rp "ENTER para continuar..."
+}
 # =========================================================
 # MENU PRINCIPAL (ROBUSTO)
 # =========================================================
@@ -788,8 +864,9 @@ echo -e "${GREEN} 8)${RESET} Reparar Permisos"
 echo -e "${GREEN} 9)${RESET} Mostrar URLs"
 echo
 echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
+echo -e "${GREEN} 11)${RESET} Agrgar DNS a Instancia de WORDPRESS"
 echo
-echo -e "${YELLOW} 11)${RESET} Reparar MariaDB"
+echo -e "${YELLOW} 12)${RESET} Reparar MariaDB"
 
 echo
 echo -e "${RED} 0)${RESET} Salir"
@@ -809,6 +886,7 @@ case "$OPCION" in
     9) listar_wordpress ;;
 	10) verificar_docker ;;
 	11) reparar_mariadb ;;
+	12) configurar_dns_wordpress ;;
     0) exit 0 ;;
     *) echo "Opción inválida" ; pause ;;
 esac
