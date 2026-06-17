@@ -789,7 +789,7 @@ echo -e "${GREEN} 9)${RESET} Mostrar URLs"
 echo
 echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
 echo
-echo -e "${YELLOW}11)${RESET} Reparar MariaDB"
+echo -e "${YELLOW} 11)${RESET} Reparar MariaDB"
 
 echo
 echo -e "${RED} 0)${RESET} Salir"
