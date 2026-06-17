@@ -918,6 +918,87 @@ reiniciar_contenedores() {
     echo
 
 }
+eliminar_red_docker() {
+
+    echo
+    echo -e "${CYAN}====================================${NC}"
+    echo -e "${CYAN}      ELIMINAR RED DOCKER0          ${NC}"
+    echo -e "${CYAN}====================================${NC}"
+    echo
+
+    if ! ip link show docker0 >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ La interfaz docker0 no existe${NC}"
+        read -rp "ENTER para continuar..."
+        return
+    fi
+
+    IP_DOCKER=$(ip -4 addr show docker0 2>/dev/null | awk '/inet / {print $2}')
+
+    echo -e "${YELLOW}⚠ Se encontró la interfaz docker0${NC}"
+    echo -e "${WHITE}IP:${NC} $IP_DOCKER"
+    echo
+
+    if command -v docker >/dev/null 2>&1; then
+
+        CONTENEDORES=$(docker network inspect bridge \
+            --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null)
+
+        if [ -n "$CONTENEDORES" ]; then
+
+            echo -e "${RED}❌ La red bridge está siendo utilizada${NC}"
+            echo
+            echo -e "${WHITE}Contenedores asociados:${NC}"
+            echo
+
+            docker ps -a \
+                --filter network=bridge \
+                --format "ID: {{.ID}} | Nombre: {{.Names}} | Imagen: {{.Image}}"
+
+            echo
+            read -rp "¿Desea eliminar docker0 de todas formas? (s/N): " RESP
+
+            case "$RESP" in
+                s|S|si|SI)
+                    ;;
+                *)
+                    echo
+                    echo -e "${YELLOW}Operación cancelada${NC}"
+                    read -rp "ENTER para continuar..."
+                    return
+                    ;;
+            esac
+
+        else
+            echo -e "${GREEN}✅ Ningún contenedor utiliza la red bridge${NC}"
+            echo
+        fi
+
+    fi
+
+    echo -e "${YELLOW}Deteniendo Docker...${NC}"
+
+    systemctl stop docker >/dev/null 2>&1
+    systemctl stop docker.socket >/dev/null 2>&1
+
+    sleep 2
+
+    echo
+    echo -e "${YELLOW}Eliminando interfaz docker0...${NC}"
+
+    ip link set docker0 down >/dev/null 2>&1
+    ip link delete docker0 >/dev/null 2>&1
+
+    echo
+
+    if ip link show docker0 >/dev/null 2>&1; then
+        echo -e "${RED}❌ No fue posible eliminar docker0${NC}"
+    else
+        echo -e "${GREEN}✅ Interfaz docker0 eliminada correctamente${NC}"
+    fi
+
+    echo
+    read -rp "ENTER para continuar..."
+}
 while true
 do
 
@@ -939,9 +1020,10 @@ echo -e "${YELLOW}[6]${RED} Eliminar Docker + Contenedor - ${YELLOW}Todos"
 echo -e "${YELLOW} *"
 echo -e "${YELLOW}[7]${RED} Desinstalar Docker Compose - ${YELLOW}Completo"
 echo -e "${YELLOW}[8]${RED} Eliminar Contenedores - ${YELLOW}Sin Uso"
+echo -e "${YELLOW}[9]${RED} Eliminar Red Docker - ${YELLOW}Sin Uso"
 echo -e "${YELLOW} *"
-echo -e "${YELLOW}[9]${YELLOW} Estado de Docker ${CYAN}/ IP:PUERTO"
-echo -e "${YELLOW}[10]${YELLOW} Reiniciar Contenedores ${CYAN}/ Ver Estados"
+echo -e "${YELLOW}[10]${YELLOW} Estado de Docker ${CYAN}/ IP:PUERTO"
+echo -e "${YELLOW}[11]${YELLOW} Reiniciar Contenedores ${CYAN}/ Ver Estados"
 echo -e "${YELLOW} *"
 echo -e "${CYAN}[0]${CYAN} Salir"
 echo -e "${YELLOW} *"
@@ -986,12 +1068,16 @@ case "$OP" in
             limpiar_docker
             read -rp "ENTER..."
             ;;	
-			
  	    9)
+            eliminar_red_docker
+            read -rp "ENTER..."
+            ;;			
+			
+ 	    10)
             mostrar_docker
             read -rp "ENTER..."
             ;;
- 	    10)
+ 	    11)
             reiniciar_contenedores
             read -rp "ENTER..."
             ;;
