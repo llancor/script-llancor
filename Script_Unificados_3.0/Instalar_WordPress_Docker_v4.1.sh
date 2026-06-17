@@ -769,7 +769,7 @@ configurar_dns_wordpress() {
 
     echo
     echo -e "${CYAN}====================================${NC}"
-    echo -e "${CYAN}     CONFIGURAR DNS WORDPRESS       ${NC}"
+    echo -e "${CYAN}      DNS WORDPRESS                 ${NC}"
     echo -e "${CYAN}====================================${NC}"
     echo
 
@@ -780,12 +780,12 @@ configurar_dns_wordpress() {
     )
 
     if [ ${#WORDPRESS[@]} -eq 0 ]; then
-        echo -e "${RED}❌ No se encontraron contenedores WordPress${NC}"
+        echo -e "${RED}❌ No se encontraron instancias WordPress${NC}"
         read -rp "ENTER para continuar..."
         return
     fi
 
-    echo -e "${WHITE}Instancias encontradas:${NC}"
+    echo -e "${WHITE}Instancias detectadas:${NC}"
     echo
 
     for i in "${!WORDPRESS[@]}"; do
@@ -797,6 +797,7 @@ configurar_dns_wordpress() {
 
     if ! [[ "$OPCION" =~ ^[0-9]+$ ]]; then
         echo -e "${RED}❌ Opción inválida${NC}"
+        read -rp "ENTER para continuar..."
         return
     fi
 
@@ -804,41 +805,111 @@ configurar_dns_wordpress() {
 
     if [ -z "$CONTENEDOR" ]; then
         echo -e "${RED}❌ Opción inválida${NC}"
+        read -rp "ENTER para continuar..."
         return
     fi
 
     echo
-    read -rp "Ingrese el dominio (ej: torqueweb.llancor.com): " DOMINIO
+    echo -e "${CYAN}Instancia:${NC} $CONTENEDOR"
+    echo
 
-    if [ -z "$DOMINIO" ]; then
-        echo -e "${RED}❌ Debe ingresar un dominio${NC}"
-        return
+    DNS_ACTUAL=$(docker exec "$CONTENEDOR" sh -c \
+        "grep WP_HOME /var/www/html/wp-config.php 2>/dev/null" | \
+        sed -n "s/.*https:\/\/\([^']*\).*/\1/p")
+
+    if [ -n "$DNS_ACTUAL" ]; then
+        echo -e "${GREEN}DNS actual:${NC} $DNS_ACTUAL"
+    else
+        echo -e "${YELLOW}DNS actual:${NC} No configurado"
     fi
 
     echo
-    echo -e "${YELLOW}Configurando ${CONTENEDOR}...${NC}"
-
-    docker exec "$CONTENEDOR" cp \
-        /var/www/html/wp-config.php \
-        /var/www/html/wp-config.php.bak
-
-    docker exec "$CONTENEDOR" sh -c "
-        sed -i '/WP_HOME/d' /var/www/html/wp-config.php
-        sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
-        sed -i \"/That's all, stop editing/i define('WP_HOME', 'https://${DOMINIO}');
-define('WP_SITEURL', 'https://${DOMINIO}');\" /var/www/html/wp-config.php
-    "
-
-    docker restart "$CONTENEDOR" >/dev/null 2>&1
-
-    echo
-    echo -e "${GREEN}✅ DNS configurado correctamente${NC}"
-    echo -e "${WHITE}Contenedor:${NC} $CONTENEDOR"
-    echo -e "${WHITE}Dominio:${NC} https://${DOMINIO}"
-    echo
-    echo -e "${GREEN}✅ Respaldo:${NC} wp-config.php.bak"
+    echo "1) Configurar / Cambiar DNS"
+    echo "2) Eliminar DNS"
+    echo "0) Cancelar"
     echo
 
+    read -rp "Seleccione una opción: " ACCION
+
+    case "$ACCION" in
+
+        1)
+
+            echo
+            read -rp "Ingrese el dominio (ej: casa.llancor.com): " DOMINIO
+
+            if [ -z "$DOMINIO" ]; then
+                echo -e "${RED}❌ Debe ingresar un dominio${NC}"
+                read -rp "ENTER para continuar..."
+                return
+            fi
+
+            echo
+            echo -e "${YELLOW}Configurando DNS...${NC}"
+
+            docker exec "$CONTENEDOR" sh -c "
+                cp /var/www/html/wp-config.php /var/www/html/wp-config.php.bak
+
+                sed -i '/WP_HOME/d' /var/www/html/wp-config.php
+                sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
+
+                cat >> /var/www/html/wp-config.php <<EOF
+
+define('WP_HOME', 'https://${DOMINIO}');
+define('WP_SITEURL', 'https://${DOMINIO}');
+EOF
+            "
+
+            docker restart "$CONTENEDOR" >/dev/null 2>&1
+
+            echo
+            echo -e "${GREEN}✅ DNS configurado correctamente${NC}"
+            echo -e "${WHITE}Dominio:${NC} https://${DOMINIO}"
+            ;;
+
+        2)
+
+            echo
+            echo -e "${RED}⚠️  ATENCIÓN${NC}"
+            echo
+            echo "Se eliminarán WP_HOME y WP_SITEURL"
+            echo
+
+            echo -ne "Escriba ${YELLOW}ELIMINAR${NC} para continuar: "
+            read -r CONFIRMAR
+
+            if [ "$CONFIRMAR" != "ELIMINAR" ]; then
+                echo
+                echo -e "${YELLOW}Operación cancelada${NC}"
+                read -rp "ENTER para continuar..."
+                return
+            fi
+
+            docker exec "$CONTENEDOR" sh -c "
+                cp /var/www/html/wp-config.php /var/www/html/wp-config.php.bak
+
+                sed -i '/WP_HOME/d' /var/www/html/wp-config.php
+                sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
+            "
+
+            docker restart "$CONTENEDOR" >/dev/null 2>&1
+
+            echo
+            echo -e "${GREEN}✅ DNS eliminado correctamente${NC}"
+            ;;
+
+        0)
+            return
+            ;;
+
+        *)
+            echo -e "${RED}❌ Opción inválida${NC}"
+            ;;
+    esac
+
+    echo
+    echo -e "${GREEN}✅ Respaldo creado:${NC} wp-config.php.bak"
+    echo
     read -rp "ENTER para continuar..."
 }
 # =========================================================
