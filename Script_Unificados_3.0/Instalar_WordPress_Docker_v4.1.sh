@@ -17,13 +17,13 @@ mkdir -p "$SITES_DIR" "$BACKUP_DIR" "$PHP_DIR" "$DATA_DIR" "$CONFIG_DIR"
 # =========================================================
 # COLORES
 # =========================================================
-
-GREEN="\e[1;32m"
-RED="\e[1;31m"
-YELLOW="\e[1;33m"
-CYAN="\e[1;36m"
-WHITE="\e[1;37m"
-RESET="\e[0m"
+CYAN='\033[1;36m'
+GREEN='\033[0;32m'
+BLUE='\033[1;34m'
+YELLOW='\033[1;33m'
+ORANGE='\033[38;5;208m'
+RED='\033[1;31m'
+RESET='\033[0m'
 
 # =========================================================
 # DOCKER COMPOSE COMPATIBLE (FIX CLAVE)
@@ -45,7 +45,7 @@ header() {
 clear
 echo -e "${CYAN}"
 echo -e "${CYAN}========================================${RESET}"
-echo -e "${WHITE}     WORDPRESS MANAGER DOCKER v4.1     ${RESET}"
+echo -e "${CYAN}     WORDPRESS MANAGER DOCKER v4.1     ${RESET}"
 echo -e "${CYAN}========================================${RESET}"
 echo -e "${RESET}"
 }
@@ -347,12 +347,122 @@ EOF
 
     pause
 }
+# =========================================================
+# LISTAR WORDPRESS (ROBUSTO)
+# =========================================================
+listar_wordpress() {
 
+    clear
+
+    echo
+    echo -e "${CYAN}====================================${NC}"
+    echo -e "${CYAN}      INSTANCIAS WORDPRESS         ${NC}"
+    echo -e "${CYAN}====================================${NC}"
+    echo
+
+    mapfile -t WORDPRESS < <(
+        docker ps -a --format "{{.Names}}" | while read -r c; do
+            docker exec "$c" test -f /var/www/html/wp-config.php 2>/dev/null && echo "$c"
+        done
+    )
+
+    if [ ${#WORDPRESS[@]} -eq 0 ]; then
+        echo -e "${RED}❌ No se encontraron instancias WordPress${NC}"
+        echo
+        read -rp "ENTER para continuar..."
+        return
+    fi
+
+    printf "%-25s %-10s %-25s %-15s\n" \
+        "CONTENEDOR" \
+        "ESTADO" \
+        "DNS" \
+        "PUERTO"
+
+    echo "-------------------------------------------------------------------------------------------"
+
+    for CONT in "${WORDPRESS[@]}"; do
+
+        ESTADO=$(docker inspect \
+            --format='{{.State.Status}}' \
+            "$CONT" 2>/dev/null)
+
+        case "$ESTADO" in
+            running)
+                ESTADO="${GREEN}🟢 Activo${NC}"
+                ;;
+            exited)
+                ESTADO="${RED}🔴 Detenido${NC}"
+                ;;
+            restarting)
+                ESTADO="${YELLOW}🟡 Reiniciando${NC}"
+                ;;
+            *)
+                ESTADO="${YELLOW}⚪ Desconocido${NC}"
+                ;;
+        esac
+
+        DNS=$(docker exec "$CONT" sh -c \
+            "grep WP_HOME /var/www/html/wp-config.php 2>/dev/null" | \
+            sed -n "s/.*https:\/\/\([^']*\).*/\1/p")
+
+        [ -z "$DNS" ] && DNS="No configurado"
+
+        PUERTO=$(docker port "$CONT" 2>/dev/null | head -n1 | awk -F: '{print $2}')
+
+        [ -z "$PUERTO" ] && PUERTO="-"
+
+        printf "%-25s %-20b %-25s %-15s\n" \
+            "$CONT" \
+            "$ESTADO" \
+            "$DNS" \
+            "$PUERTO"
+
+    done
+
+    echo
+    echo -e "${CYAN}Detalle:${NC}"
+    echo
+
+    for CONT in "${WORDPRESS[@]}"; do
+
+        DNS=$(docker exec "$CONT" sh -c \
+            "grep WP_HOME /var/www/html/wp-config.php 2>/dev/null" | \
+            sed -n "s/.*https:\/\/\([^']*\).*/\1/p")
+
+        if [ -n "$DNS" ]; then
+
+            if getent hosts "$DNS" >/dev/null 2>&1; then
+                DNS_ESTADO="${GREEN}🟢 DNS OK${NC}"
+            else
+                DNS_ESTADO="${RED}🔴 DNS NO RESUELVE${NC}"
+            fi
+
+            echo -e "${WHITE}$CONT${NC}"
+            echo -e "  URL : https://$DNS"
+            echo -e "  DNS : $DNS_ESTADO"
+            echo
+
+        else
+
+            PUERTO=$(docker port "$CONT" 2>/dev/null | head -n1 | awk -F: '{print $2}')
+
+            echo -e "${WHITE}$CONT${NC}"
+            echo -e "  URL : http://IP_SERVIDOR:$PUERTO"
+            echo -e "  DNS : ${YELLOW}No configurado${NC}"
+            echo
+
+        fi
+
+    done
+
+    read -rp "ENTER para continuar..."
+}
 # =========================================================
 # LISTAR WORDPRESS (ROBUSTO)
 # =========================================================
 
-listar_wordpress() {
+listar_wordpress_url() {
 
     header
 
@@ -395,6 +505,202 @@ listar_wordpress() {
     done < "$CONFIG_DIR/sites.db"
 
     pause
+}
+# =========================================================
+# GESTIONAR CONTENEDORES
+# =========================================================
+
+gestionar_contenedores_docker() {
+
+    while true; do
+
+        clear
+
+        echo
+        echo -e "${CYAN}====================================${NC}"
+        echo -e "${CYAN}    GESTOR DE CONTENEDORES         ${NC}"
+        echo -e "${CYAN}====================================${NC}"
+        echo
+
+        mapfile -t CONTENEDORES < <(
+            docker ps -a --format "{{.Names}}"
+        )
+
+        if [ ${#CONTENEDORES[@]} -eq 0 ]; then
+            echo -e "${RED}❌ No existen contenedores Docker${NC}"
+            echo
+            read -rp "ENTER para continuar..."
+            return
+        fi
+
+        for i in "${!CONTENEDORES[@]}"; do
+
+            NOMBRE="${CONTENEDORES[$i]}"
+
+            ESTADO=$(docker inspect \
+                --format='{{.State.Status}}' \
+                "$NOMBRE" 2>/dev/null)
+
+            IMAGEN=$(docker inspect \
+                --format='{{.Config.Image}}' \
+                "$NOMBRE" 2>/dev/null)
+
+            HEALTH=$(docker inspect \
+                --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}sin-healthcheck{{end}}' \
+                "$NOMBRE" 2>/dev/null)
+
+            case "$ESTADO" in
+                running)
+                    ICONO="${GREEN}🟢${NC}"
+                    ;;
+                exited)
+                    ICONO="${RED}🔴${NC}"
+                    ;;
+                restarting)
+                    ICONO="${YELLOW}🟡${NC}"
+                    ;;
+                *)
+                    ICONO="${YELLOW}⚪${NC}"
+                    ;;
+            esac
+
+            printf "%b %2s) %-25s %-15s [%s]\n" \
+                "$ICONO" \
+                "$((i+1))" \
+                "$NOMBRE" \
+                "$ESTADO" \
+                "$HEALTH"
+
+        done
+
+        echo
+        echo "1) Reiniciar un contenedor"
+        echo "2) Iniciar un contenedor"
+        echo "3) Detener un contenedor"
+        echo "4) Reiniciar todos"
+        echo "5) Iniciar todos los detenidos"
+        echo "6) Ver detalles de un contenedor"
+        echo "0) Volver"
+        echo
+
+        read -rp "Seleccione una opción: " OPCION
+
+        case "$OPCION" in
+
+            1)
+
+                echo
+                read -rp "Número del contenedor: " NUM
+
+                CONT="${CONTENEDORES[$((NUM-1))]}"
+
+                [ -z "$CONT" ] && continue
+
+                echo
+                echo -ne "Escriba ${YELLOW}REINICIAR${NC} para continuar: "
+                read -r CONFIRMAR
+
+                [ "$CONFIRMAR" != "REINICIAR" ] && continue
+
+                docker restart "$CONT"
+
+                echo
+                echo -e "${GREEN}✅ Contenedor reiniciado${NC}"
+                read -rp "ENTER para continuar..."
+                ;;
+
+            2)
+
+                echo
+                read -rp "Número del contenedor: " NUM
+
+                CONT="${CONTENEDORES[$((NUM-1))]}"
+
+                [ -z "$CONT" ] && continue
+
+                docker start "$CONT"
+
+                echo
+                echo -e "${GREEN}✅ Contenedor iniciado${NC}"
+                read -rp "ENTER para continuar..."
+                ;;
+
+            3)
+
+                echo
+                read -rp "Número del contenedor: " NUM
+
+                CONT="${CONTENEDORES[$((NUM-1))]}"
+
+                [ -z "$CONT" ] && continue
+
+                echo
+                echo -ne "Escriba ${YELLOW}DETENER${NC} para continuar: "
+                read -r CONFIRMAR
+
+                [ "$CONFIRMAR" != "DETENER" ] && continue
+
+                docker stop "$CONT"
+
+                echo
+                echo -e "${GREEN}✅ Contenedor detenido${NC}"
+                read -rp "ENTER para continuar..."
+                ;;
+
+            4)
+
+                echo
+                echo -ne "Escriba ${YELLOW}REINICIAR-TODOS${NC} para continuar: "
+                read -r CONFIRMAR
+
+                [ "$CONFIRMAR" != "REINICIAR-TODOS" ] && continue
+
+                docker restart $(docker ps -q)
+
+                echo
+                echo -e "${GREEN}✅ Todos los contenedores fueron reiniciados${NC}"
+                read -rp "ENTER para continuar..."
+                ;;
+
+            5)
+
+                docker ps -a \
+                    --filter "status=exited" \
+                    --format "{{.Names}}" | while read -r c; do
+                        docker start "$c"
+                    done
+
+                echo
+                echo -e "${GREEN}✅ Contenedores detenidos iniciados${NC}"
+                read -rp "ENTER para continuar..."
+                ;;
+
+            6)
+
+                echo
+                read -rp "Número del contenedor: " NUM
+
+                CONT="${CONTENEDORES[$((NUM-1))]}"
+
+                [ -z "$CONT" ] && continue
+
+                clear
+
+                echo
+                echo -e "${CYAN}Detalles de:${NC} $CONT"
+                echo
+
+                docker inspect "$CONT" | less
+
+                ;;
+
+            0)
+                return
+                ;;
+
+        esac
+
+    done
 }
 
 # =========================================================
@@ -790,33 +1096,33 @@ configurar_dns_wordpress() {
             return
         fi
 
-        echo -e "${WHITE}Instancias detectadas:${NC}"
-        echo
+echo -e "${WHITE}Instancias detectadas:${NC}"
+echo
 
-        for i in "${!WORDPRESS[@]}"; do
+for i in "${!WORDPRESS[@]}"; do
 
-            DNS_ACTUAL=$(docker exec "${WORDPRESS[$i]}" sh -c \
-                "grep WP_HOME /var/www/html/wp-config.php 2>/dev/null" | \
-                sed -n "s/.*https:\/\/\([^']*\).*/\1/p")
+    DNS_ACTUAL=$(docker exec "${WORDPRESS[$i]}" sh -c \
+    "grep 'WP_HOME' /var/www/html/wp-config.php 2>/dev/null || true" | \
+    sed -E "s/.*https?:\/\/([^'\"]+).*/\1/")
 
-            if [ -z "$DNS_ACTUAL" ]; then
-                ESTADO="${YELLOW}SIN DNS${NC}"
-                DNS_ACTUAL="No configurado"
-            else
-                if getent hosts "$DNS_ACTUAL" >/dev/null 2>&1; then
-                    ESTADO="${GREEN}DNS OK${NC}"
-                else
-                    ESTADO="${RED}DNS NO RESUELVE${NC}"
-                fi
-            fi
+    if [ -z "$DNS_ACTUAL" ]; then
+        ESTADO="${YELLOW}SIN DNS${NC}"
+        DNS_ACTUAL="No configurado"
+    else
+        if getent hosts "$DNS_ACTUAL" >/dev/null 2>&1; then
+            ESTADO="${GREEN}DNS OK${NC}"
+        else
+            ESTADO="${RED}DNS NO RESUELVE${NC}"
+        fi
+    fi
 
-            printf "%b %s) %-20s DNS: %s\n" \
-                "$ESTADO" \
-                "$((i+1))" \
-                "${WORDPRESS[$i]}" \
-                "$DNS_ACTUAL"
+    printf "%b %s) %-20s DNS: %s\n" \
+        "$ESTADO" \
+        "$((i+1))" \
+        "${WORDPRESS[$i]}" \
+        "$DNS_ACTUAL"
 
-        done
+done
 
         echo
         echo "0) Volver"
@@ -831,28 +1137,28 @@ configurar_dns_wordpress() {
             continue
         fi
 
-        CONTENEDOR="${WORDPRESS[$((OPCION-1))]}"
+CONTENEDOR="${WORDPRESS[$((OPCION-1))]}"
 
-        if [ -z "$CONTENEDOR" ]; then
-            continue
-        fi
+if [ -z "$CONTENEDOR" ]; then
+    continue
+fi
 
-        while true; do
+while true; do
 
-            clear
+    clear
 
-            DNS_ACTUAL=$(docker exec "$CONTENEDOR" sh -c \
-                "grep WP_HOME /var/www/html/wp-config.php 2>/dev/null" | \
-                sed -n "s/.*https:\/\/\([^']*\).*/\1/p")
+    DNS_ACTUAL=$(docker exec "$CONTENEDOR" sh -c \
+    "grep 'WP_HOME' /var/www/html/wp-config.php 2>/dev/null || true" | \
+    sed -E "s/.*https?:\/\/([^'\"]+).*/\1/")
 
-            echo
-            echo -e "${CYAN}Instancia:${NC} $CONTENEDOR"
+    echo
+    echo -e "${CYAN}Instancia:${NC} $CONTENEDOR"
 
-            if [ -n "$DNS_ACTUAL" ]; then
-                echo -e "${GREEN}DNS actual:${NC} $DNS_ACTUAL"
-            else
-                echo -e "${YELLOW}DNS actual:${NC} No configurado"
-            fi
+    if [ -n "$DNS_ACTUAL" ]; then
+        echo -e "${GREEN}DNS actual:${NC} $DNS_ACTUAL"
+    else
+        echo -e "${YELLOW}DNS actual:${NC} No configurado"
+    fi
 
             echo
             echo "1) Configurar DNS"
@@ -875,14 +1181,6 @@ configurar_dns_wordpress() {
                     [ -z "$DOMINIO" ] && continue
 
                     echo
-
-                    if getent hosts "$DOMINIO" >/dev/null 2>&1; then
-                        echo -e "${GREEN}✅ El dominio resuelve correctamente${NC}"
-                    else
-                        echo -e "${YELLOW}⚠ El dominio aún no resuelve DNS${NC}"
-                    fi
-
-                    echo
                     echo -ne "Escriba ${YELLOW}CONFIRMAR${NC} para continuar: "
                     read -r CONFIRMAR
 
@@ -890,18 +1188,27 @@ configurar_dns_wordpress() {
 
                     FECHA=$(date +%Y%m%d-%H%M%S)
 
+                    echo
+                    echo "Configurando $CONTENEDOR..."
+                    echo
+
                     docker exec "$CONTENEDOR" sh -c "
-                        cp /var/www/html/wp-config.php /var/www/html/wp-config.php.bak-${FECHA}
+                    cp /var/www/html/wp-config.php /var/www/html/wp-config.php.bak-${FECHA}
 
-                        sed -i '/WP_HOME/d' /var/www/html/wp-config.php
-                        sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
+                    sed -i '/WP_HOME/d' /var/www/html/wp-config.php
+                    sed -i '/WP_SITEURL/d' /var/www/html/wp-config.php
 
-                        cat >> /var/www/html/wp-config.php <<EOF
-
-define('WP_HOME', 'https://${DOMINIO}');
-define('WP_SITEURL', 'https://${DOMINIO}');
-EOF
+                    sed -i \"/That's all, stop editing/i define('WP_HOME', 'https://${DOMINIO}');\" /var/www/html/wp-config.php
+                    sed -i \"/That's all, stop editing/i define('WP_SITEURL', 'https://${DOMINIO}');\" /var/www/html/wp-config.php
                     "
+
+                    echo
+                    echo -e "${CYAN}Verificando...${NC}"
+                    echo
+
+                    docker exec "$CONTENEDOR" grep -nE "WP_HOME|WP_SITEURL" /var/www/html/wp-config.php
+
+                    echo
 
                     docker restart "$CONTENEDOR" >/dev/null 2>&1
 
@@ -909,6 +1216,7 @@ EOF
                     echo -e "${GREEN}✅ DNS configurado correctamente${NC}"
                     echo -e "${WHITE}Dominio:${NC} https://${DOMINIO}"
                     echo
+
                     read -rp "ENTER para continuar..."
                     ;;
 
@@ -944,16 +1252,27 @@ EOF
 
                 4)
 
+                    clear
+
                     echo
-                    echo -e "${CYAN}Configuración actual:${NC}"
+                    echo -e "${CYAN}====================================${NC}"
+                    echo -e "${CYAN}    CONFIGURACIÓN ACTUAL           ${NC}"
+                    echo -e "${CYAN}====================================${NC}"
                     echo
 
-                    docker exec "$CONTENEDOR" sh -c "
-                        grep -E 'WP_HOME|WP_SITEURL' /var/www/html/wp-config.php
-                    "
+                    CONFIG=$(docker exec "$CONTENEDOR" sh -c \
+                        "grep -E 'WP_HOME|WP_SITEURL' /var/www/html/wp-config.php 2>/dev/null || true")
+
+                    if [ -z "$CONFIG" ]; then
+                        echo -e "${YELLOW}No hay DNS configurado${NC}"
+                    else
+                        echo "$CONFIG"
+                    fi
 
                     echo
                     read -rp "ENTER para continuar..."
+
+                    continue
                     ;;
 
                 5)
@@ -1012,47 +1331,43 @@ while true; do
 header
 
 
-
-echo -e "${GREEN} 1)${RESET} Instalacion Inicial"
-echo -e "${GREEN} 2)${RESET} Crear WordPress"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 3)${RESET} Listar WordPress"
-echo -e "${GREEN} 4)${RESET} Ver Credenciales"
+echo -e "${GREEN} 1) Instalación Inicial${RESET}"
+echo -e "${GREEN} 2) Crear WordPress${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 5)${RESET} Eliminar WordPress"
+echo -e "${BLUE} 3) Listar WordPress${RESET}"
+echo -e "${BLUE} 4) Ver Credenciales${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 6)${RESET} Backup Completo"
-echo -e "${GREEN} 7)${RESET} Actualizar Contenedores"
+echo -e "${RED} 5) Eliminar WordPress${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 8)${RESET} Reparar Permisos"
+echo -e "${ORANGE} 6) Backup Completo${RESET}"
+echo -e "${YELLOW} 7) Actualizar Contenedores${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 9)${RESET} Mostrar URLs"
+echo -e "${ORANGE} 8) Reparar Permisos${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
+echo -e "${BLUE} 9) Mostrar URLs${RESET}"
 echo -e "${GREEN}*"
-echo -e "${YELLOW} 11)${RESET} Reparar MariaDB"
+echo -e "${YELLOW}10) Gestionar Contenedores Docker / Reiniciar / Estado${RESET}"
 echo -e "${GREEN}*"
-echo -e "${GREEN} 12)${RESET} Agregar DNS a Instancia de WORDPRESS"
+echo -e "${ORANGE}11) Reparar MariaDB${RESET}"
 echo -e "${GREEN}*"
-
-
-echo
-echo -e "${RED} 0)${RESET} Salir"
-echo
+echo -e "${YELLOW}12) Agregar DNS a Instancia WordPress${RESET}"
+echo -e "${GREEN}*"
+echo -e "${RED} 0) Salir${RESET}"
 
 read -rp "Seleccione opción: " OPCION
 
 case "$OPCION" in
     1) instalacion_inicial ;;
     2) crear_wordpress ;;
-    3) listar_wordpress ;;
+    3) listar_wordpress_url ;;
     4) ver_credenciales ;;
     5) eliminar_wordpress ;;
     6) backup_bd ;;
     7) actualizar_contenedores ;;
     8) reparar_permisos ;;
     9) listar_wordpress ;;
-	10) verificar_docker ;;
+	10) gestionar_contenedores_docker ;;
 	11) reparar_mariadb ;;
 	12) configurar_dns_wordpress ;;
     0) exit 0 ;;
