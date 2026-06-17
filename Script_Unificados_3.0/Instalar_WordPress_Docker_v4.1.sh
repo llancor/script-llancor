@@ -1320,6 +1320,172 @@ while true; do
 
     done
 }
+editar_wpconfig_wordpress() {
+
+while true; do
+
+clear
+
+echo
+echo -e "${CYAN}====================================${NC}"
+echo -e "${CYAN}     EDITAR WP-CONFIG WORDPRESS     ${NC}"
+echo -e "${CYAN}====================================${NC}"
+echo
+
+
+mapfile -t WORDPRESS < <(
+    docker ps --format "{{.Names}}" | while read -r c; do
+        docker exec "$c" test -f /var/www/html/wp-config.php 2>/dev/null && echo "$c"
+    done
+)
+
+
+if [ ${#WORDPRESS[@]} -eq 0 ]; then
+
+    echo -e "${RED}❌ No se encontraron WordPress${NC}"
+    read -rp "ENTER para continuar..."
+    return
+
+fi
+
+
+
+echo -e "${WHITE}Instancias encontradas:${NC}"
+echo
+
+
+for i in "${!WORDPRESS[@]}"; do
+
+    ESTADO=$(docker ps --filter "name=${WORDPRESS[$i]}" \
+    --format "{{.Status}}")
+
+    echo "$((i+1))) ${WORDPRESS[$i]} - $ESTADO"
+
+done
+
+
+echo
+echo "0) Volver"
+echo
+
+
+read -rp "Seleccione instancia: " OPCION
+
+
+
+if [ "$OPCION" = "0" ]; then
+    return
+fi
+
+
+if ! [[ "$OPCION" =~ ^[0-9]+$ ]]; then
+    continue
+fi
+
+
+CONTENEDOR="${WORDPRESS[$((OPCION-1))]}"
+
+
+if [ -z "$CONTENEDOR" ]; then
+    continue
+fi
+
+
+
+echo
+echo -e "${CYAN}Contenedor seleccionado:${NC} $CONTENEDOR"
+echo
+
+
+
+# instalar nano
+
+if ! docker exec "$CONTENEDOR" command -v nano >/dev/null 2>&1; then
+
+    echo
+    echo -e "${YELLOW}Instalando nano...${NC}"
+    echo
+
+
+    docker exec "$CONTENEDOR" sh -c "
+    apt update &&
+    apt install -y nano
+    "
+
+else
+
+    echo -e "${GREEN}✅ Nano ya instalado${NC}"
+
+fi
+
+
+
+# backup
+
+FECHA=$(date +%Y%m%d-%H%M%S)
+
+
+echo
+echo "Creando respaldo..."
+echo
+
+
+docker exec "$CONTENEDOR" sh -c "
+
+cp /var/www/html/wp-config.php \
+/var/www/html/wp-config.php.bak-${FECHA}
+
+"
+
+
+
+echo
+echo -e "${GREEN}✅ Backup creado:${NC}"
+echo "wp-config.php.bak-${FECHA}"
+echo
+
+
+
+echo
+echo -e "${CYAN}Abriendo wp-config.php${NC}"
+echo
+
+echo "Agrega la configuración antes de:"
+echo
+
+echo "/* That's all, stop editing! Happy publishing. */"
+
+echo
+
+echo "Ejemplo para usar IP local + DNS:"
+echo
+
+echo "if (isset(\$_SERVER['HTTP_HOST'])) {"
+echo "    define('WP_HOME', (isset(\$_SERVER['HTTPS']) ? 'https://' : 'http://') . \$_SERVER['HTTP_HOST']);"
+echo "    define('WP_SITEURL', (isset(\$_SERVER['HTTPS']) ? 'https://' : 'http://') . \$_SERVER['HTTP_HOST']);"
+echo "}"
+
+echo
+
+
+read -rp "ENTER para abrir nano..."
+
+
+docker exec -it "$CONTENEDOR" nano /var/www/html/wp-config.php
+
+
+
+echo
+echo -e "${GREEN}Editor cerrado${NC}"
+echo
+
+
+read -rp "ENTER para continuar..."
+
+
+done
+
+}
 # =========================================================
 # MENU PRINCIPAL (ROBUSTO)
 # =========================================================
@@ -1352,6 +1518,7 @@ echo -e "${GREEN}*"
 echo -e "${ORANGE}11) Reparar MariaDB${RESET}"
 echo -e "${GREEN}*"
 echo -e "${YELLOW}12) Agregar DNS a Instancia WordPress${RESET}"
+echo -e "${YELLOW}13) Editar wp-config.php WordPress Agregar DNS${RESET}"
 echo -e "${GREEN}*"
 echo -e "${RED} 0) Salir${RESET}"
 
@@ -1370,6 +1537,7 @@ case "$OPCION" in
 	10) gestionar_contenedores_docker ;;
 	11) reparar_mariadb ;;
 	12) configurar_dns_wordpress ;;
+	13) editar_wpconfig_wordpress ;;
     0) exit 0 ;;
     *) echo "Opción inválida" ; pause ;;
 esac
