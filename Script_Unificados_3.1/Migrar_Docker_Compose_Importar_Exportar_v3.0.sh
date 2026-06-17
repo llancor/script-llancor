@@ -938,12 +938,16 @@ eliminar_red_docker() {
     echo -e "${WHITE}IP:${NC} $IP_DOCKER"
     echo
 
+    RED_EN_USO=0
+
     if command -v docker >/dev/null 2>&1; then
 
         CONTENEDORES=$(docker network inspect bridge \
             --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null)
 
         if [ -n "$CONTENEDORES" ]; then
+
+            RED_EN_USO=1
 
             echo -e "${RED}❌ La red bridge está siendo utilizada${NC}"
             echo
@@ -955,26 +959,36 @@ eliminar_red_docker() {
                 --format "ID: {{.ID}} | Nombre: {{.Names}} | Imagen: {{.Image}}"
 
             echo
-            read -rp "¿Desea eliminar docker0 de todas formas? (s/N): " RESP
-
-            case "$RESP" in
-                s|S|si|SI)
-                    ;;
-                *)
-                    echo
-                    echo -e "${YELLOW}Operación cancelada${NC}"
-                    read -rp "ENTER para continuar..."
-                    return
-                    ;;
-            esac
-
         else
             echo -e "${GREEN}✅ Ningún contenedor utiliza la red bridge${NC}"
             echo
         fi
-
     fi
 
+    echo -e "${RED}⚠️  ATENCIÓN${NC}"
+    echo
+
+    echo "Se realizará la siguiente acción:"
+    echo " - Eliminar la interfaz docker0"
+
+    if [ "$RED_EN_USO" -eq 1 ]; then
+        echo " - La red está siendo utilizada por contenedores"
+    fi
+
+    echo " - Docker podría recrearla al reiniciar el servicio"
+    echo
+
+    echo -ne "Escriba ${YELLOW}ELIMINAR${NC} para continuar: "
+    read -r CONFIRMAR
+
+    if [ "$CONFIRMAR" != "ELIMINAR" ]; then
+        echo
+        echo -e "${YELLOW}Operación cancelada${NC}"
+        read -rp "ENTER para continuar..."
+        return
+    fi
+
+    echo
     echo -e "${YELLOW}Deteniendo Docker...${NC}"
 
     systemctl stop docker >/dev/null 2>&1
@@ -994,6 +1008,14 @@ eliminar_red_docker() {
         echo -e "${RED}❌ No fue posible eliminar docker0${NC}"
     else
         echo -e "${GREEN}✅ Interfaz docker0 eliminada correctamente${NC}"
+    fi
+
+    echo
+
+    if systemctl is-active docker >/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠ Docker continúa activo${NC}"
+    else
+        echo -e "${GREEN}✅ Docker detenido${NC}"
     fi
 
     echo

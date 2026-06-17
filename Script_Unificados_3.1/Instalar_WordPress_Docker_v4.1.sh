@@ -741,6 +741,30 @@ reparar_mariadb() {
     echo
     pause
 }
+verificar_docker() {
+
+    echo "Verificando Docker..."
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "ERROR: Docker no está instalado."
+        exit 1
+    fi
+
+    if ! systemctl is-active --quiet docker; then
+        echo "Docker está detenido. Iniciando..."
+        systemctl start docker
+        systemctl enable docker >/dev/null 2>&1
+        sleep 3
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        echo "ERROR: No se pudo conectar con Docker."
+        echo "Revisar con: journalctl -u docker -n 50 --no-pager"
+        exit 1
+    fi
+
+    echo "Docker operativo."
+}
 # =========================================================
 # MENU PRINCIPAL (ROBUSTO)
 # =========================================================
@@ -762,9 +786,10 @@ echo -e "${GREEN} 6)${RESET} Backup Completo"
 echo -e "${GREEN} 7)${RESET} Actualizar Contenedores"
 echo -e "${GREEN} 8)${RESET} Reparar Permisos"
 echo -e "${GREEN} 9)${RESET} Mostrar URLs"
-
 echo
-echo -e "${YELLOW}10)${RESET} Reparar MariaDB"
+echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
+echo
+echo -e "${YELLOW}11)${RESET} Reparar MariaDB"
 
 echo
 echo -e "${RED} 0)${RESET} Salir"
@@ -782,7 +807,8 @@ case "$OPCION" in
     7) actualizar_contenedores ;;
     8) reparar_permisos ;;
     9) listar_wordpress ;;
-	10) reparar_mariadb ;;
+	10) verificar_docker ;;
+	11) reparar_mariadb ;;
     0) exit 0 ;;
     *) echo "Opción inválida" ; pause ;;
 esac
