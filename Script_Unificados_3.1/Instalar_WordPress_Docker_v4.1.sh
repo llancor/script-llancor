@@ -855,18 +855,26 @@ header
 
 echo -e "${GREEN} 1)${RESET} Instalacion Inicial"
 echo -e "${GREEN} 2)${RESET} Crear WordPress"
+echo -e "${GREEN}*"
 echo -e "${GREEN} 3)${RESET} Listar WordPress"
 echo -e "${GREEN} 4)${RESET} Ver Credenciales"
+echo -e "${GREEN}*"
 echo -e "${GREEN} 5)${RESET} Eliminar WordPress"
+echo -e "${GREEN}*"
 echo -e "${GREEN} 6)${RESET} Backup Completo"
 echo -e "${GREEN} 7)${RESET} Actualizar Contenedores"
+echo -e "${GREEN}*"
 echo -e "${GREEN} 8)${RESET} Reparar Permisos"
+echo -e "${GREEN}*"
 echo -e "${GREEN} 9)${RESET} Mostrar URLs"
-echo
+echo -e "${GREEN}*"
 echo -e "${GREEN} 10)${RESET} Verifica y Reinicia Docker"
-echo -e "${GREEN} 11)${RESET} Agrgar DNS a Instancia de WORDPRESS"
-echo
-echo -e "${YELLOW} 12)${RESET} Reparar MariaDB"
+echo -e "${GREEN}*"
+echo -e "${YELLOW} 11)${RESET} Reparar MariaDB"
+echo -e "${GREEN}*"
+echo -e "${GREEN} 12)${RESET} Agregar DNS a Instancia de WORDPRESS"
+echo -e "${GREEN}*"
+
 
 echo
 echo -e "${RED} 0)${RESET} Salir"
