@@ -50,15 +50,6 @@ pause() {
     read -rp "Presione ENTER para continuar..."
 }
 
-header() {
-    clear
-
-    echo -e "${CYAN}"
-    echo "=================================================="
-    echo "          PORTAINER MANAGER PRO v3.0"
-    echo "=================================================="
-    echo -e "${NC}"
-}
 
 # ---------- SISTEMA ----------
 
@@ -799,8 +790,8 @@ ver_repositorios_templates() {
     echo
     echo                   "REPOSITORIO RECOMENDADO"
     echo "================================================================================"
-    echo -e "${CYAN}" Latest Verción mas de 100 stack"${NC}"
-    echo -e "${CYAN}"https://git.ibaraki.app/-/snippets/3/raw/main/templates.json"${NC}"
+    echo -e "${CYAN}" Latest Verción mas de 50 stack"${NC}"
+    echo -e "${CYAN}"https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json"${NC}"
 	echo
 	echo -e "${CYAN}" LTS Verción "${NC}"
     echo -e "${CYAN}"https://raw.githubusercontent.com/portainer/templates/master/templates-2.0.json"${NC}"
@@ -944,7 +935,7 @@ menu() {
 while true; do
 
 header
-
+clear
 echo
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}      PORTAINER MANAGER PRO v3.1        ${NC}"
