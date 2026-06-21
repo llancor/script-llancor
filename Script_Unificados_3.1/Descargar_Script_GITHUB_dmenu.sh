@@ -76,36 +76,43 @@ descargar_script() {
     read -rp "Seleccione script: " OPCION
 
     if ! [[ "$OPCION" =~ ^[0-9]+$ ]]; then
-        echo "❌ Opción inválida"
+        echo -e "${RED}❌ Opción inválida${NC}"
         return
     fi
 
     IDX=$((OPCION-1))
 
     if [ -z "${URLS[$IDX]}" ]; then
-        echo "❌ Opción fuera de rango"
+        echo -e "${RED}❌ Opción fuera de rango${NC}"
         return
     fi
 
     URL="${URLS[$IDX]}"
     ARCHIVO="${SCRIPTS[$IDX]}"
+    RUTA="$DESTINO/$ARCHIVO"
 
     echo
-    echo "⬇️ Descargando $ARCHIVO..."
+    echo -e "${CYAN}⬇️ Descargando ${GREEN}$ARCHIVO${NC}..."
 
-    if curl -L --progress-bar -o "$DESTINO/$ARCHIVO" "$URL"; then
-        chmod +x "$DESTINO/$ARCHIVO"
-    echo
-    echo -e "${GREEN}✅ Descargado correctamente${NC}"
-    echo -e "${WHITE}📁 $DESTINO/$ARCHIVO${NC}"
+    if curl -L --progress-bar -o "$RUTA" "$URL"; then
+
+        chmod +x "$RUTA"
+
+        echo
+        echo -e "${GREEN}✅ Descargado correctamente${NC}"
+        echo -e "${WHITE}📁 $RUTA${NC}"
+
+        echo
+        echo -e "${CYAN}🚀 Ejecutando $ARCHIVO...${NC}"
+        echo
+
+        bash "$RUTA"
+
     else
-    echo -e "${RED}❌ Error al descargar${NC}"
+        echo -e "${RED}❌ Error al descargar${NC}"
     fi
 }
 
-# ----------------------------------------------------------
-# Ejecutar script descargado
-# ----------------------------------------------------------
 ejecutar_script() {
 
     mapfile -t LOCALES < <(
@@ -114,31 +121,32 @@ ejecutar_script() {
 
     if [ ${#LOCALES[@]} -eq 0 ]; then
         echo
-        echo "❌ No hay scripts descargados."
+        echo -e "${RED}❌ No hay scripts descargados.${NC}"
         return
     fi
 
     echo
-    echo "══════════════════════════════════════"
-    echo "      SCRIPTS DESCARGADOS"
-    echo "══════════════════════════════════════"
+    echo -e "${CYAN}══════════════════════════════════════${NC}"
+    echo -e "${CYAN}      SCRIPTS DESCARGADOS${NC}"
+    echo -e "${CYAN}══════════════════════════════════════${NC}"
 
     for i in "${!LOCALES[@]}"; do
-        printf "[%02d] %s\n" "$((i+1))" "$(basename "${LOCALES[$i]}")"
+        printf "${GREEN}[%02d]${NC} ${CYAN}%s${NC}\n" \
+        "$((i+1))" "$(basename "${LOCALES[$i]}")"
     done
 
     echo
     read -rp "Seleccione script: " OPCION
 
     if ! [[ "$OPCION" =~ ^[0-9]+$ ]]; then
-        echo "❌ Opción inválida"
+        echo -e "${RED}❌ Opción inválida${NC}"
         return
     fi
 
     IDX=$((OPCION-1))
 
     if [ -z "${LOCALES[$IDX]}" ]; then
-        echo "❌ Opción fuera de rango"
+        echo -e "${RED}❌ Opción fuera de rango${NC}"
         return
     fi
 

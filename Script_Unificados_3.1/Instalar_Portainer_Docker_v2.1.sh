@@ -5,7 +5,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
-
+TEMPLATE_URL="https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json"
 success() {
     echo -e "${GREEN}[OK]${NC} $1"
 }
@@ -368,7 +368,19 @@ actualizar_portainer() {
     pause
 
 }
+ver_repositorios_templates() {
 
+    header
+
+    echo
+    echo "REPOSITORIO RECOMENDADO"
+    echo "================================================="
+    echo
+    echo "$TEMPLATE_URL"
+    echo
+
+    pause
+}
 while true; do
 
 header
@@ -388,6 +400,7 @@ echo -e "${YELLOW}[6]${NC} ${CYAN}Ver logs${NC}"
 echo -e "${YELLOW}[7]${NC} ${CYAN}Actualizar Portainer${NC}"
 echo -e "${YELLOW}[8]${NC} ${CYAN}Reiniciar Docker${NC}"
 echo -e "${YELLOW}[9]${NC} ${CYAN}Mostrar URL${NC}"
+echo -e "${YELLOW}[10]${NC} ${CYAN}Ver Repositorio Docker / Stack / Container URL${NC}"
 echo
 echo -e "${YELLOW}[0]${NC} ${RED}Salir${NC}"
 echo
@@ -404,6 +417,7 @@ case $OPCION in
     7) actualizar_portainer ;;
     8) reiniciar_docker ;;
     9) mostrar_url; pause ;;
+	10)ver_repositorios_templates ;;
     0) exit 0 ;;
     *) error "Opción inválida"; sleep 2 ;;
 esac
