@@ -794,7 +794,7 @@ ver_repositorios_templates() {
     echo -e "${CYAN}"https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json"${NC}"
 	echo
 	echo -e "${CYAN}" LTS Verción "${NC}"
-    echo -e "${CYAN}"https://raw.githubusercontent.com/portainer/templates/master/templates-2.0.json"${NC}"
+    echo -e "${CYAN}"https://raw.githubusercontent.com/TomChantler/portainer-templates/refs/heads/v3/templates_v3.json"${NC}"
     echo
     echo "================================================================================"
     pause
