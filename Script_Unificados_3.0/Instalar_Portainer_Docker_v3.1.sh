@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==================================================
-# PORTAINER MANAGER PRO v3.0
+# PORTAINER MANAGER PRO v3.1
 # Debian 12 / Ubuntu
 # Portainer CE LTS
 # ==================================================
@@ -16,9 +16,7 @@ NC='\033[0m'
 
 # ---------- VARIABLES ----------
 PORTAINER_NAME="portainer"
-PORTAINER_IMAGE="portainer/portainer-ce:lts"
 PORTAINER_PORT="9443"
-TEMPLATE_URL="https://git.ibaraki.app/-/snippets/3/raw/main/templates.json"
 VOLUME_NAME="portainer_data"
 
 BACKUP_DIR="/opt/portainer"
@@ -384,6 +382,38 @@ estado_portainer() {
 # ==================================================
 # INSTALACIÓN
 # ==================================================
+# ==================================================
+# PORTAINER
+# ==================================================
+
+PORTAINER_NAME="portainer"
+VOLUME_NAME="portainer_data"
+
+seleccionar_version_portainer() {
+
+    echo
+    echo "===================================="
+    echo "      VERSION DE PORTAINER"
+    echo "===================================="
+    echo
+    echo " 1) LTS (Recomendada)"
+    echo " 2) Latest"
+    echo
+    read -rp "Seleccione una opción [1-2]: " OPCION
+
+    case "$OPCION" in
+        2)
+            PORTAINER_IMAGE="portainer/portainer-ce:latest"
+            PORTAINER_VERSION="Latest"
+        ;;
+        *)
+            PORTAINER_IMAGE="portainer/portainer-ce:lts"
+            PORTAINER_VERSION="LTS"
+        ;;
+    esac
+
+    success "Versión seleccionada: $PORTAINER_VERSION"
+}
 
 instalar_portainer() {
 
@@ -405,40 +435,41 @@ instalar_portainer() {
 
     echo
 
-if docker ps -a --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
+    if docker ps -a --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
 
-    warning "Portainer ya existe"
+        warning "Portainer ya existe"
 
-    read -rp "¿Desea repararlo automáticamente? [s/N]: " RESP
+        read -rp "¿Desea repararlo automáticamente? [s/N]: " RESP
 
-    if [[ "$RESP" =~ ^[Ss]$ ]]; then
-        reparar_portainer
+        if [[ "$RESP" =~ ^[Ss]$ ]]; then
+            reparar_portainer
+        fi
+
+        pause
+        return
     fi
 
-    pause
-    return
-fi
+    seleccionar_version_portainer
 
     mkdir -p "$BACKUP_DIR"
 
+    echo
     info "Creando volumen..."
 
     docker volume create "$VOLUME_NAME" >/dev/null 2>&1
 
     echo
-
-    info "Descargando imagen LTS..."
+    info "Descargando imagen $PORTAINER_VERSION..."
 
     docker pull "$PORTAINER_IMAGE" || {
 
         error "Error descargando imagen"
 
         pause
-        return
+        return 1
     }
 
     echo
-
     info "Instalando Portainer..."
 
     docker run -d \
@@ -453,7 +484,7 @@ fi
 
     if docker ps --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
 
-        success "Portainer instalado correctamente"
+        success "Portainer $PORTAINER_VERSION instalado correctamente"
 
         abrir_puerto_9443
 
@@ -464,7 +495,6 @@ fi
         error "Portainer no inició"
 
         docker logs "$PORTAINER_NAME" --tail 50
-
     fi
 
     pause
@@ -767,13 +797,143 @@ ver_repositorios_templates() {
     header
 
     echo
-    echo "REPOSITORIO RECOMENDADO"
-    echo "================================================="
+    echo                   "REPOSITORIO RECOMENDADO"
+    echo "================================================================================"
+    echo -e "${CYAN}" Latest Verción mas de 100 stack"${NC}"
+    echo -e "${CYAN}"https://git.ibaraki.app/-/snippets/3/raw/main/templates.json"${NC}"
+	echo
+	echo -e "${CYAN}" LTS Verción "${NC}"
+    echo -e "${CYAN}"https://raw.githubusercontent.com/portainer/templates/master/templates-2.0.json"${NC}"
     echo
-    echo "$TEMPLATE_URL"
+    echo "================================================================================"
+    pause
+}
+reparar_dns_docker_portainer() {
+
+    header
+
+    echo "===================================="
+    echo "   REPARAR DNS DOCKER / PORTAINER"
+    echo "===================================="
     echo
 
+    if [ "$(id -u)" -ne 0 ]; then
+        error "Debe ejecutarse como root"
+        return 1
+    fi
+
+    info "Creando respaldo de configuración DNS..."
+
+    mkdir -p /root/backups
+
+    if [ -f /etc/docker/daemon.json ]; then
+        cp /etc/docker/daemon.json \
+        /root/backups/daemon.json.$(date +%Y%m%d-%H%M%S)
+    fi
+
+    info "Configurando DNS de Docker..."
+
+    mkdir -p /etc/docker
+
+    cat > /etc/docker/daemon.json <<EOF
+{
+  "dns": [
+    "1.1.1.1",
+    "8.8.8.8"
+  ]
+}
+EOF
+
+    info "Reiniciando Docker..."
+
+    systemctl daemon-reload
+    systemctl restart docker
+
+    sleep 5
+
+    if ! docker info >/dev/null 2>&1; then
+        error "Docker no está funcionando correctamente"
+        return 1
+    fi
+
+    success "Docker operativo"
+
+    if docker ps -a --format '{{.Names}}' | grep -q "^portainer$"; then
+
+        info "Reiniciando Portainer..."
+
+        docker restart portainer >/dev/null 2>&1
+
+        sleep 8
+
+        success "Portainer reiniciado"
+
+        echo
+        info "DNS dentro del contenedor:"
+        docker exec portainer cat /etc/resolv.conf 2>/dev/null || true
+
+        echo
+        info "Prueba de conectividad:"
+        docker exec portainer getent hosts github.com 2>/dev/null || warning "No resuelve aún"
+
+    else
+        warning "Portainer no está instalado o no se llama 'portainer'"
+    fi
+
+    echo
+    success "Reparación de DNS finalizada"
     pause
+}
+mostrar_docker() {
+
+    clear
+
+    IP_SERVIDOR=$(hostname -I | awk '{print $1}')
+
+    echo
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${WHITE}              CONTENEDORES DOCKER${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo
+
+    printf "%-25s %-20s %s\n" \
+        "CONTENEDOR" \
+        "ESTADO" \
+        "ACCESO"
+
+    echo -e "${CYAN}────────────────────────────────────────────────────────────────────${NC}"
+
+    docker ps -a --format "{{.Names}}" | while read -r CONT
+    do
+
+        ESTADO_REAL=$(docker inspect -f '{{.State.Status}}' "$CONT" 2>/dev/null)
+
+        if [ "$ESTADO_REAL" = "running" ]; then
+            ESTADO="${GREEN}🟢 Activo${NC}"
+        else
+            ESTADO="${RED}🔴 Detenido${NC}"
+        fi
+
+        ACCESO="${YELLOW}Sin puerto publicado${NC}"
+
+        PUERTO=$(docker port "$CONT" 2>/dev/null \
+            | head -n1 \
+            | awk -F: '{print $NF}')
+
+        if [ -n "$PUERTO" ]; then
+            ACCESO="${YELLOW}http://${IP_SERVIDOR}:${PUERTO}${NC}"
+        fi
+
+        printf "%-25s " "$CONT"
+        echo -e "$ESTADO    $ACCESO"
+
+    done
+
+    echo
+    echo -e "${WHITE}IP Servidor:${NC} ${GREEN}${IP_SERVIDOR}${NC}"
+    echo
+
+    read -rp "ENTER para continuar..."
 }
 # ==================================================
 # MENÚ
@@ -787,7 +947,7 @@ header
 
 echo
 echo -e "${CYAN}========================================${NC}"
-echo -e "${CYAN}      PORTAINER MANAGER PRO v3.0        ${NC}"
+echo -e "${CYAN}      PORTAINER MANAGER PRO v3.1        ${NC}"
 echo -e "${CYAN}========================================${NC}"
 echo
 
@@ -815,9 +975,12 @@ echo
 echo -e "${YELLOW}[16]${NC} Ver red"
 echo -e "${YELLOW}[17]${NC} Ver puertos"
 echo -e "${YELLOW}[18]${NC} Ver firewall"
-echo -e "${YELLOW}[19]${NC} Ver Repositorios de Templates"
 echo
-echo -e "${YELLOW}[20]${NC} Desinstalar Portainer"
+echo -e "${YELLOW}[19]${NC} Ver Repositorios de Templates"
+echo -e "${YELLOW}[20]${NC} Reparar DNS Para Descargar Repositorios"
+echo -e "${YELLOW}[21]${NC} Ver Estado de Stack / Docker / Aplicaciones"
+echo
+echo -e "${YELLOW}[22]${NC} Desinstalar Portainer"
 
 echo
 echo -e "${RED}[0]${NC} Salir"
@@ -916,8 +1079,20 @@ case "$OPCION" in
         ver_repositorios_templates
         
         ;;
-
+		
     20)
+        
+        reparar_dns_docker_portainer-mostrar_docker
+        
+        ;;
+		
+	21)
+        
+        mostrar_docker
+        
+        ;;
+
+    22)
         desinstalar_portainer
         ;;
 
