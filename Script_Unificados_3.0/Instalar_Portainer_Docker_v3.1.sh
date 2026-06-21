@@ -1073,7 +1073,7 @@ case "$OPCION" in
 		
     20)
         
-        reparar_dns_docker_portainer-mostrar_docker
+        reparar_dns_docker_portainer
         
         ;;
 		
