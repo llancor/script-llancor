@@ -479,7 +479,6 @@ instalar_portainer() {
     docker run -d \
         --name "$PORTAINER_NAME" \
         --restart unless-stopped \
-		--no-setup-token \
         -p 9443:9443 \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ${VOLUME_NAME}:/data \
@@ -494,7 +493,8 @@ instalar_portainer() {
         abrir_puerto_9443
 
         mostrar_url
-
+		
+        mostrar_setup_token
     else
 
         error "Portainer no inició"
@@ -621,10 +621,6 @@ reparar_portainer() {
 
     pause
 }
-
-# ==================================================
-# ACTUALIZACIÓN
-# ==================================================
 
 # ==================================================
 # ACTUALIZACIÓN
@@ -979,6 +975,69 @@ mostrar_docker() {
 
     read -rp "ENTER para continuar..."
 }
+mostrar_setup_token() {
+
+    local TOKEN
+
+    TOKEN=$(docker logs "$PORTAINER_NAME" 2>&1 | grep -m1 -o 'setup_token=.*' | cut -d= -f2)
+
+    echo
+    echo "=============================================================="
+
+    if [ -n "$TOKEN" ]; then
+
+        success "TOKEN DE CONFIGURACIÓN DE PORTAINER"
+
+        echo
+        echo "$TOKEN"
+        echo
+        info "Copie este token y péguelo en la pantalla inicial de Portainer."
+
+    else
+
+        warning "No se encontró el token de configuración."
+
+        info "Esto puede ocurrir si:"
+        echo "  • Ya creó el usuario administrador."
+        echo "  • El token ya no aparece en los registros."
+        echo
+
+    fi
+
+    echo "=============================================================="
+}
+ver_token_configuracion() {
+
+    header
+
+    verificar_root
+
+    echo
+
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
+        error "Portainer no está instalado."
+        pause
+        return
+    fi
+
+    TOKEN=$(docker logs "$PORTAINER_NAME" 2>&1 | grep -o 'setup_token=.*' | cut -d= -f2)
+
+    if [ -z "$TOKEN" ]; then
+        warning "No se encontró el token de configuración."
+        pause
+        return
+    fi
+
+    success "TOKEN DE CONFIGURACIÓN DE PORTAINER"
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "$TOKEN"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+    info "Copie este token y péguelo en la pantalla inicial de Portainer."
+
+    pause
+}
 # ==================================================
 # MENÚ
 # ==================================================
@@ -1025,6 +1084,7 @@ echo -e "${YELLOW}[20]${NC} Reparar DNS Para Descargar Repositorios"
 echo -e "${YELLOW}[21]${NC} Ver Estado de Stack / Docker / Aplicaciones"
 echo
 echo -e "${YELLOW}[22]${NC} Desinstalar Portainer"
+echo -e "${YELLOW}[23]${NC} Mostrar Token Configuracion"
 
 echo
 echo -e "${RED}[0]${NC} Salir"
@@ -1138,6 +1198,10 @@ case "$OPCION" in
 
     22)
         desinstalar_portainer
+        ;;
+
+	23)
+        ver_token_configuracion
         ;;
 
     0)
