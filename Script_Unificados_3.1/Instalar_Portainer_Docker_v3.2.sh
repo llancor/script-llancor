@@ -479,6 +479,7 @@ instalar_portainer() {
     docker run -d \
         --name "$PORTAINER_NAME" \
         --restart unless-stopped \
+		--no-setup-token \
         -p 9443:9443 \
         -v /var/run/docker.sock:/var/run/docker.sock \
         -v ${VOLUME_NAME}:/data \
