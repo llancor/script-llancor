@@ -999,6 +999,51 @@ mostrar_setup_token() {
 
     echo "=============================================="
 }
+ver_token_configuracion() {
+
+    header
+
+    verificar_root
+
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^${PORTAINER_NAME}$"; then
+        error "Portainer no está instalado."
+        pause
+        return
+    fi
+
+    echo
+    info "Buscando token de configuración..."
+
+    TOKEN=$(docker logs "$PORTAINER_NAME" 2>&1 | grep -oE 'setup_token=[a-f0-9]+' | cut -d= -f2)
+
+    echo
+
+    if [ -n "$TOKEN" ]; then
+
+        success "TOKEN DE CONFIGURACIÓN"
+
+        echo
+        echo "──────────────────────────────────────────────────────────────"
+        echo "$TOKEN"
+        echo "──────────────────────────────────────────────────────────────"
+        echo
+
+        info "Copie este token y péguelo en la pantalla inicial de Portainer."
+
+    else
+
+        warning "No se encontró el token."
+
+        echo
+        info "Posibles causas:"
+        echo "  • Ya creó el usuario administrador."
+        echo "  • El contenedor fue reiniciado y los logs se perdieron."
+        echo "  • La versión de Portainer no utiliza Setup Token."
+
+    fi
+
+    pause
+}
 # ==================================================
 # MENÚ
 # ==================================================
@@ -1162,7 +1207,7 @@ case "$OPCION" in
         ;;
 
 	23)
-        mostrar_setup_token
+        ver_token_configuracion
         ;;
 
     0)
