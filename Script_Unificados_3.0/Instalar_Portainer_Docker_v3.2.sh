@@ -979,25 +979,32 @@ mostrar_setup_token() {
 
     local TOKEN
 
-    TOKEN=$(docker logs "$PORTAINER_NAME" 2>&1 | grep -oE 'setup_token=[a-f0-9]+' | cut -d= -f2)
+    TOKEN=$(docker logs "$PORTAINER_NAME" 2>&1 | grep -m1 -o 'setup_token=.*' | cut -d= -f2)
 
     echo
-    echo "=============================================="
+    echo "=============================================================="
 
     if [ -n "$TOKEN" ]; then
+
         success "TOKEN DE CONFIGURACIÓN DE PORTAINER"
+
         echo
         echo "$TOKEN"
         echo
-        info "Copia este token y pégalo en la página de configuración inicial."
+        info "Copie este token y péguelo en la pantalla inicial de Portainer."
+
     else
-        warning "No se pudo obtener el token de configuración."
-        info "Puede verlo ejecutando:"
+
+        warning "No se encontró el token de configuración."
+
+        info "Esto puede ocurrir si:"
+        echo "  • Ya creó el usuario administrador."
+        echo "  • El token ya no aparece en los registros."
         echo
-        echo "docker logs $PORTAINER_NAME"
+
     fi
 
-    echo "=============================================="
+    echo "=============================================================="
 }
 ver_token_configuracion() {
 
