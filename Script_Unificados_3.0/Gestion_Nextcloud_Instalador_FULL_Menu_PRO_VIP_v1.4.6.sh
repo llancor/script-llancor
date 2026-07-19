@@ -3817,36 +3817,105 @@ menu_samba(){
   while true; do
     clear
     echo -e "${CYAN}${BOLD}=== AJUSTES SAMBA ===${NC}"
+    echo
     echo -e " ${YELLOW}1)${NC} Instalar Samba"
     echo -e " ${YELLOW}2)${NC} Crear carpeta compartida sin credenciales"
     echo -e " ${YELLOW}3)${NC} Reiniciar Samba"
-    echo -e " ${CYAN}0) Volver${NC}"
+    echo -e " ${YELLOW}4)${NC} Ver estado Samba"
+    echo -e " ${YELLOW}5)${NC} Editar configuración Samba"
+	echo -e " ${YELLOW}6)${NC} Desactivar carpeta compartida"
+    echo -e " ${CYAN}0)${NC} Volver"
+    echo
+
     read -rp "> " op
+
     case "$op" in
-      1) sudo apt-get update && sudo apt-get install -y samba && ok "Samba instalado." || err "Error instalando Samba."; pausa ;;
+
+      1)
+        apt update &&
+        apt install -y samba samba-common-bin &&
+        systemctl enable smbd --now &&
+        ok "Samba instalado correctamente." ||
+        err "Error instalando Samba."
+        pausa
+        ;;
+
       2)
-         read -rp "Ruta de la carpeta a compartir (default: /srv/samba/public): " carpeta
-         carpeta="${carpeta:-/srv/samba/public}"
-         sudo mkdir -p "$carpeta"
-         sudo chmod -R 777 "$carpeta"
-         sudo chown -R nobody:nogroup "$carpeta"
-         if ! grep -q "\[Public\]" /etc/samba/smb.conf; then
-           sudo bash -c "cat >> /etc/samba/smb.conf" <<EOF
+        read -rp "Ruta carpeta (default /srv/samba/public): " carpeta
+        carpeta="${carpeta:-/srv/samba/public}"
+
+        mkdir -p "$carpeta"
+
+        chown -R nobody:nogroup "$carpeta"
+        chmod -R 775 "$carpeta"
+
+        cp /etc/samba/smb.conf /etc/samba/smb.conf.backup.$(date +%F-%H%M)
+
+        if ! grep -q "^\[Public\]" /etc/samba/smb.conf; then
+
+cat >> /etc/samba/smb.conf <<EOF
 
 [Public]
    path = $carpeta
    browseable = yes
    writable = yes
    guest ok = yes
+   read only = no
    force user = nobody
+   force group = nogroup
 EOF
-         fi
-         sudo systemctl restart smbd && ok "Samba reiniciado con carpeta compartida $carpeta."
-         pausa
-         ;;
-      3) sudo systemctl restart smbd && ok "Samba reiniciado."; pausa ;;
-      0) return ;;
-      *) warn "Opción inválida"; pausa ;;
+
+        fi
+
+        testparm
+
+        systemctl restart smbd
+
+        ok "Compartición creada: $carpeta"
+        pausa
+        ;;
+
+      3)
+        systemctl restart smbd
+        ok "Samba reiniciado."
+        pausa
+        ;;
+
+      4)
+        systemctl status smbd --no-pager
+        pausa
+        ;;
+
+      5)
+        nano /etc/samba/smb.conf
+        systemctl restart smbd
+        pausa
+        ;;
+      6)
+        cp /etc/samba/smb.conf /etc/samba/smb.conf.backup.$(date +%F-%H%M)
+
+        if grep -q "^\[Public\]" /etc/samba/smb.conf; then
+
+          sed -i '/^\[Public\]/,/^$/ s/^/#/' /etc/samba/smb.conf
+
+          systemctl restart smbd
+
+          ok "Carpeta compartida Public desactivada."
+        else
+          warn "No se encontró la compartición Public."
+        fi
+
+        pausa
+        ;;
+      0)
+        return
+        ;;
+
+      *)
+        warn "Opción inválida"
+        pausa
+        ;;
+
     esac
   done
 }
