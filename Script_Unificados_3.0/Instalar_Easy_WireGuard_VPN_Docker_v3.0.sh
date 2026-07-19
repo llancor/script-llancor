@@ -941,14 +941,12 @@ verificar_ipforward
 
 verificar_puertos
 
-verificar_dependencias
-
 echo
 
 success "Verificación finalizada"
 
 pause
-
+instalar_docker
 }
 ############################################################
 # Instalar Docker CE
@@ -1101,8 +1099,9 @@ menu_wireguard_cliente() {
         echo " 3) Iniciar VPN"
         echo " 4) Detener VPN"
         echo " 5) Reiniciar VPN"
-        echo " 6) Estado de la VPN"
-        echo " 7) Eliminar configuración"
+		echo " 6) Ver configuración VPN"
+        echo " 7) Estado de la VPN"
+        echo " 8) Eliminar configuración"
         echo " 0) Volver"
         echo
 
@@ -1114,8 +1113,9 @@ menu_wireguard_cliente() {
             3) iniciar_wireguard ;;
             4) detener_wireguard ;;
             5) reiniciar_wireguard ;;
-            6) estado_wireguard ;;
-            7) eliminar_wireguard ;;
+			6) ver_config_wireguard ;;
+            7) estado_wireguard ;;
+            8) eliminar_wireguard ;;
             0) break ;;
             *) warning "Opción inválida."; sleep 2 ;;
         esac
@@ -1331,6 +1331,95 @@ reiniciar_wireguard() {
         break
 
     done
+
+    pause
+
+}
+ver_config_wireguard() {
+
+    banner
+
+    echo "=========== CONFIGURACIÓN WIREGUARD ==========="
+    echo
+
+    mapfile -t CFG < <(find /etc/wireguard -maxdepth 1 -name "*.conf" | sort)
+
+    if [ ${#CFG[@]} -eq 0 ]; then
+
+        warning "No existen configuraciones WireGuard."
+        pause
+        return
+
+    fi
+
+
+    echo "Configuraciones disponibles:"
+    echo
+
+    for i in "${!CFG[@]}"; do
+        echo -e " ${YELLOW}$((i+1)))${NC} $(basename "${CFG[$i]}")"
+    done
+
+    echo
+
+    read -rp "Seleccione una configuración: " opc
+
+
+    if [[ ! "$opc" =~ ^[0-9]+$ ]] || (( opc<1 || opc>${#CFG[@]} )); then
+
+        warning "Opción inválida."
+        pause
+        return
+
+    fi
+
+
+    ARCHIVO="${CFG[$((opc-1))]}"
+
+    clear
+
+    echo "=========== ARCHIVO =========="
+    echo "$(basename "$ARCHIVO")"
+    echo
+
+
+    echo "=========== CONTENIDO =========="
+    echo
+
+
+    sed -E \
+    -e 's/(PrivateKey[[:space:]]*=[[:space:]]*).*/\1********/' \
+    "$ARCHIVO"
+
+
+    echo
+    echo "================================"
+
+    echo
+    echo "Estado actual:"
+    echo
+
+    INTERFAZ=$(basename "$ARCHIVO" .conf)
+
+    if systemctl is-active --quiet "wg-quick@$INTERFAZ"; then
+
+        echo "VPN: ACTIVA"
+
+    else
+
+        echo "VPN: DETENIDA"
+
+    fi
+
+
+    echo
+
+    if command -v wg >/dev/null 2>&1; then
+
+        wg show "$INTERFAZ" 2>/dev/null || true
+
+    fi
+
 
     pause
 
