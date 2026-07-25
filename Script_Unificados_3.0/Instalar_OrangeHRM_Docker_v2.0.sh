@@ -1025,18 +1025,7 @@ services:
 
       ORANGEHRM_DATABASE_PASSWORD: \${MYSQL_PASSWORD}
 
-
-
-    volumes:
-
-
-      - ./orangehrm:/var/www/html
-
-
-
 EOF
-
-
 
 }
 
