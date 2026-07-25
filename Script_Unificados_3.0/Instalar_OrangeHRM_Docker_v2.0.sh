@@ -2355,81 +2355,48 @@ done
 
 desinstalar_instancia(){
 
+    seleccionar_instancia || return
 
-seleccionar_instancia || return
+    cargar_datos_instancia "$INSTANCIA_ACTUAL"
 
+    echo
+    mensaje_warn "Se eliminará completamente: $NOMBRE"
+    echo
 
-cargar_datos_instancia "$INSTANCIA_ACTUAL"
+    read -rp "¿Continuar? (s/n): " CONFIRMAR
 
+    if [[ "$CONFIRMAR" != "s" && "$CONFIRMAR" != "S" ]]; then
+        mensaje_info "Operación cancelada"
+        pausa
+        return
+    fi
 
+    if [ -d "$RUTA" ]; then
+        cd "$RUTA" || return
+    else
+        mensaje_error "La carpeta de la instancia no existe."
+        pausa
+        return
+    fi
 
-echo
+    mensaje_info "Deteniendo contenedores..."
+    docker compose down -v || true
 
-mensaje_warn "Se eliminará completamente: $NOMBRE"
+    mensaje_info "Eliminando contenedores..."
+    docker rm -f "$NOMBRE" 2>/dev/null || true
+    docker rm -f "${NOMBRE}_db" 2>/dev/null || true
 
-echo
+    mensaje_info "Eliminando archivos..."
+    rm -rf "$RUTA" || true
 
+    mensaje_info "Eliminando registro..."
+    eliminar_registro "$NOMBRE" || true
 
-read -rp "¿Continuar? (s/n): " CONFIRMAR
+    mensaje_ok "Instancia eliminada correctamente."
 
-
-
-if [[ "$CONFIRMAR" != "s" && "$CONFIRMAR" != "S" ]]; then
-
-
-mensaje_info "Cancelado"
-
-
-pausa
-
-return
-
-
-fi
-
-
-
-cd "$RUTA"
-
-
-
-mensaje_info "Deteniendo contenedores..."
-
-
-docker compose down -v
-
-
-
-mensaje_info "Eliminando contenedores..."
-
-
-docker rm -f "$NOMBRE" 2>/dev/null || true
-
-
-docker rm -f "${NOMBRE}_db" 2>/dev/null || true
-
-
-
-mensaje_info "Eliminando archivos..."
-
-
-rm -rf "$RUTA"
-
-
-
-eliminar_registro "$NOMBRE"
-
-
-
-mensaje_ok "Instancia eliminada correctamente"
-
-
-
-pausa
-
+    pausa
 
 }
-
 
 
 #############################################################
