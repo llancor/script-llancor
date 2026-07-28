@@ -75,7 +75,7 @@ header() {
 
 clear
 
-echo -e "${AZUL}"
+echo -e "${CYAN}"
 echo "══════════════════════════════════════════════════════════════"
 echo "                 APC UPS MANAGER v${VERSION}"
 echo "══════════════════════════════════════════════════════════════"
@@ -1224,232 +1224,6 @@ EOF
 
 }
 ############################################################
-# ALERTAS POR CORREO
-############################################################
-
-
-EMAIL_CONFIG="/root/ups-email.conf"
-
-
-############################################################
-# CARGAR CONFIGURACION EMAIL
-############################################################
-
-cargar_email() {
-
-    if [[ -f "$EMAIL_CONFIG" ]]
-    then
-
-        source "$EMAIL_CONFIG"
-
-    else
-
-        return 1
-
-    fi
-
-}
-
-
-
-############################################################
-# ENVIAR CORREO
-############################################################
-
-enviar_correo() {
-
-
-    ASUNTO="$1"
-    MENSAJE="$2"
-
-
-    cargar_email
-
-
-    if [[ "$ALERTAS_CORREO" != "ON" ]]
-    then
-
-        return 0
-
-    fi
-
-
-
-    if [[ -z "$EMAIL_DESTINO" ]]
-    then
-
-        return 1
-
-    fi
-
-
-
-    echo "$MENSAJE" | mail -s "$ASUNTO" "$EMAIL_DESTINO"
-
-
-    registrar_log "Correo enviado: $ASUNTO"
-
-
-}
-
-
-
-############################################################
-# CONFIGURAR CORREO
-############################################################
-
-configurar_correo() {
-
-
-    header
-
-    titulo "CONFIGURACION CORREO"
-
-
-    echo
-
-
-    read -rp "Correo destino: " DESTINO
-
-
-
-cat > "$EMAIL_CONFIG" <<EOF
-EMAIL_DESTINO="$DESTINO"
-ALERTAS_CORREO="OFF"
-EOF
-
-
-    chmod 600 "$EMAIL_CONFIG"
-
-
-    mensaje_ok "Correo configurado."
-
-    echo
-    echo "Estado inicial: DESACTIVADO"
-
-    pausa
-
-}
-
-
-
-############################################################
-# PRUEBA CORREO
-############################################################
-
-probar_correo() {
-
-
-    header
-
-    titulo "PRUEBA DE CORREO"
-
-
-    cargar_email
-
-
-    if [[ -z "$EMAIL_DESTINO" ]]
-    then
-
-        mensaje_error "Correo no configurado."
-
-        pausa
-
-        return
-
-    fi
-
-
-
-    echo "
-APC UPS MANAGER
-
-Prueba de correo correcta.
-
-Servidor:
-$(hostname)
-
-Fecha:
-$(date)
-" | mail -s "Prueba UPS APC" "$EMAIL_DESTINO"
-
-
-
-    mensaje_ok "Correo enviado."
-
-    pausa
-
-}
-
-
-
-############################################################
-# ACTIVAR / DESACTIVAR ALERTAS
-############################################################
-
-toggle_alertas_correo() {
-
-
-    header
-
-    titulo "ALERTAS CORREO"
-
-
-    cargar_email
-
-
-
-    if [[ "$ALERTAS_CORREO" == "ON" ]]
-    then
-
-
-        echo
-        echo "Estado actual: ACTIVADAS"
-        echo
-
-
-        read -rp "¿Desactivar alertas? [s/N]: " RESP
-
-
-        if [[ "$RESP" =~ ^[sS]$ ]]
-        then
-
-            sed -i 's/ALERTAS_CORREO="ON"/ALERTAS_CORREO="OFF"/' "$EMAIL_CONFIG"
-
-            mensaje_ok "Alertas por correo desactivadas."
-
-        fi
-
-
-
-    else
-
-
-        echo
-        echo "Estado actual: DESACTIVADAS"
-        echo
-
-
-        read -rp "¿Activar alertas? [s/N]: " RESP
-
-
-        if [[ "$RESP" =~ ^[sS]$ ]]
-        then
-
-            sed -i 's/ALERTAS_CORREO="OFF"/ALERTAS_CORREO="ON"/' "$EMAIL_CONFIG"
-
-            mensaje_ok "Alertas por correo activadas."
-
-        fi
-
-
-    fi
-
-
-    pausa
-
-}
-############################################################
 # PANEL GENERAL DEL SISTEMA
 ############################################################
 
@@ -1508,7 +1282,907 @@ estado_alertas() {
 
 }
 
+############################################################
+# CONFIGURACION CORREO
+############################################################
 
+EMAIL_CONFIG="/root/ups-email.conf"
+
+EMAIL_LISTA="/root/ups-email-lista.conf"
+
+############################################################
+# MENU GESTION CORREO
+############################################################
+
+menu_correo() {
+
+    while true
+    do
+
+header
+
+titulo "$(echo -e "${CYAN}GESTION DE CORREO SMTP${RESET}")"
+
+echo
+
+echo -e "${AMARILLO}1)${RESET} Configurar servidor SMTP"
+echo -e "${AMARILLO}2)${RESET} Activar alertas por correo"
+echo -e "${AMARILLO}3)${RESET} Desactivar alertas por correo"
+echo -e "${AMARILLO}4)${RESET} Agregar destinatario"
+echo -e "${AMARILLO}5)${RESET} Eliminar destinatario"
+echo -e "${AMARILLO}6)${RESET} Ver destinatarios"
+echo -e "${AMARILLO}7)${RESET} Enviar correo de prueba"
+echo -e "${AMARILLO}8)${RESET} Ver configuración SMTP"
+
+echo
+echo -e "${ROJO}0)${RESET} Volver"
+echo
+
+        read -rp "Seleccione una opción: " OP
+
+        case "$OP" in
+
+            1)
+
+                configurar_correo
+
+            ;;
+
+            2)
+
+                activar_alertas_correo
+
+            ;;
+
+            3)
+
+                desactivar_alertas_correo
+
+            ;;
+
+            4)
+
+                agregar_destinatario
+
+            ;;
+
+            5)
+
+                eliminar_destinatario
+
+            ;;
+
+            6)
+
+                ver_destinatarios
+
+            ;;
+
+            7)
+
+                probar_correo
+
+            ;;
+
+            8)
+
+                ver_configuracion_correo
+
+            ;;
+
+            0)
+
+                break
+
+            ;;
+
+            *)
+
+                mensaje_error "Opción inválida."
+
+                sleep 1
+
+            ;;
+
+        esac
+
+    done
+
+}
+############################################################
+# CARGAR CONFIGURACION EMAIL
+############################################################
+
+cargar_email() {
+
+    if [[ -f "$EMAIL_CONFIG" ]]
+    then
+
+        source "$EMAIL_CONFIG"
+
+    else
+
+        return 1
+
+    fi
+
+}
+
+############################################################
+# ENVIAR CORREO A TODOS LOS DESTINATARIOS
+############################################################
+
+enviar_correo() {
+
+    local ASUNTO="$1"
+    local MENSAJE="$2"
+
+    cargar_email || return 1
+
+    [[ "$ALERTAS_CORREO" != "ON" ]] && return 0
+
+    [[ ! -f "$EMAIL_LISTA" ]] && return 1
+
+    while IFS= read -r DESTINO
+    do
+
+        [[ -z "$DESTINO" ]] && continue
+
+        echo "$MENSAJE" | mail -s "$ASUNTO" "$DESTINO"
+
+    done < "$EMAIL_LISTA"
+
+    registrar_log "Correo enviado: $ASUNTO"
+
+}
+
+############################################################
+# VERIFICAR DEPENDENCIAS CORREO
+############################################################
+
+verificar_dependencias_correo() {
+
+    echo
+    echo "Verificando dependencias..."
+    echo
+
+    local PAQUETES=(
+        msmtp
+        msmtp-mta
+        mailutils
+        ca-certificates
+    )
+
+    local FALTAN=()
+
+    for PKG in "${PAQUETES[@]}"
+    do
+
+        if ! dpkg -s "$PKG" >/dev/null 2>&1
+        then
+            FALTAN+=("$PKG")
+        fi
+
+    done
+
+    if [[ ${#FALTAN[@]} -gt 0 ]]
+    then
+
+        echo
+        echo "Instalando dependencias..."
+        echo
+
+        apt update
+
+        if ! apt install -y "${FALTAN[@]}"
+        then
+
+            mensaje_error "No fue posible instalar las dependencias."
+
+            return 1
+
+        fi
+
+        mensaje_ok "Dependencias instaladas."
+
+    else
+
+        mensaje_ok "Todas las dependencias ya están instaladas."
+
+    fi
+
+
+    ####################################################
+    # VERIFICAR COMANDOS
+    ####################################################
+
+    local COMANDOS=(
+        msmtp
+        mail
+    )
+
+    for CMD in "${COMANDOS[@]}"
+    do
+
+        if ! command -v "$CMD" >/dev/null 2>&1
+        then
+
+            mensaje_error "No se encontró el comando: $CMD"
+
+            return 1
+
+        fi
+
+    done
+
+
+    ####################################################
+    # VERIFICAR CERTIFICADOS
+    ####################################################
+
+    if [[ ! -f /etc/ssl/certs/ca-certificates.crt ]]
+    then
+
+        mensaje_error "No existen certificados CA."
+
+        return 1
+
+    fi
+
+
+    mensaje_ok "Sistema listo para configurar correo."
+
+    return 0
+
+}
+############################################################
+# CONFIGURAR CORREO SMTP
+############################################################
+
+configurar_correo() {
+
+    header
+    titulo "CONFIGURAR CORREO SMTP"
+
+    verificar_dependencias_correo || {
+        pausa
+        return
+    }
+
+    ########################################################
+    # SELECCIONAR PROVEEDOR
+    ########################################################
+
+    echo
+    echo "Seleccione el proveedor SMTP"
+    echo
+    echo "1) Gmail"
+    echo "2) Outlook / Hotmail"
+    echo "3) Microsoft 365"
+    echo "4) Zoho Mail"
+    echo "5) Personalizado"
+    echo
+
+    read -rp "Opción [1]: " OPCION
+
+    case "$OPCION" in
+
+        ""|1)
+
+            SMTP_HOST="smtp.gmail.com"
+            SMTP_PORT="587"
+            SMTP_TLS="on"
+
+        ;;
+
+        2)
+
+            SMTP_HOST="smtp.office365.com"
+            SMTP_PORT="587"
+            SMTP_TLS="on"
+
+        ;;
+
+        3)
+
+            SMTP_HOST="smtp.office365.com"
+            SMTP_PORT="587"
+            SMTP_TLS="on"
+
+        ;;
+
+        4)
+
+            SMTP_HOST="smtp.zoho.com"
+            SMTP_PORT="587"
+            SMTP_TLS="on"
+
+        ;;
+
+        5)
+
+            read -rp "Servidor SMTP: " SMTP_HOST
+            read -rp "Puerto SMTP: " SMTP_PORT
+
+            read -rp "Usar TLS (S/n): " RESP
+
+            [[ -z "$RESP" || "$RESP" =~ ^[sS]$ ]] && SMTP_TLS="on" || SMTP_TLS="off"
+
+        ;;
+
+        *)
+
+            mensaje_error "Opción inválida."
+
+            pausa
+
+            return
+
+        ;;
+
+    esac
+
+
+    ########################################################
+    # DATOS SMTP
+    ########################################################
+
+    echo
+
+    while [[ -z "$SMTP_FROM" ]]
+    do
+        read -rp "Correo remitente: " SMTP_FROM
+    done
+
+    while [[ -z "$SMTP_USER" ]]
+    do
+        read -rp "Usuario SMTP: " SMTP_USER
+    done
+
+    while [[ -z "$SMTP_PASS" ]]
+    do
+        read -rsp "Contraseña / Clave de aplicación: " SMTP_PASS
+        echo
+    done
+
+    while [[ -z "$EMAIL_DESTINO" ]]
+    do
+        read -rp "Correo destino alertas: " EMAIL_DESTINO
+    done
+
+
+    ########################################################
+    # GUARDAR CONFIGURACION
+    ########################################################
+
+cat > "$EMAIL_CONFIG" <<EOF
+SMTP_HOST="$SMTP_HOST"
+SMTP_PORT="$SMTP_PORT"
+SMTP_TLS="$SMTP_TLS"
+
+SMTP_FROM="$SMTP_FROM"
+SMTP_USER="$SMTP_USER"
+SMTP_PASS="$SMTP_PASS"
+
+EMAIL_DESTINO="$EMAIL_DESTINO"
+
+ALERTAS_CORREO="OFF"
+EOF
+
+    chmod 600 "$EMAIL_CONFIG"
+
+
+    ########################################################
+    # CONFIGURAR MSMTP
+    ########################################################
+
+cat > /etc/msmtprc <<EOF
+defaults
+
+auth on
+
+tls $SMTP_TLS
+
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+
+account default
+
+host $SMTP_HOST
+port $SMTP_PORT
+
+from $SMTP_FROM
+
+user $SMTP_USER
+
+password $SMTP_PASS
+
+logfile /var/log/msmtp.log
+EOF
+
+    chmod 600 /etc/msmtprc
+
+    touch /var/log/msmtp.log
+
+    chmod 644 /var/log/msmtp.log
+
+
+    ########################################################
+    # PRUEBA DE ENVIO
+    ########################################################
+
+    echo
+    echo "Enviando correo de prueba..."
+    echo
+
+    MENSAJE="
+
+APC UPS MANAGER
+
+Configuración SMTP realizada correctamente.
+
+Servidor: $(hostname)
+
+Fecha: $(date)
+
+Si recibió este correo, el envío funciona correctamente.
+
+"
+
+    echo "$MENSAJE" | mail -s "Prueba APC UPS Manager" "$EMAIL_DESTINO"
+
+    if [[ $? -eq 0 ]]
+    then
+
+        mensaje_ok "Correo enviado correctamente."
+
+        registrar_log "Configuración SMTP finalizada."
+
+    else
+
+        mensaje_error "No fue posible enviar el correo."
+
+        echo
+        echo "Revise:"
+        echo "  - Usuario SMTP"
+        echo "  - Contraseña"
+        echo "  - Servidor SMTP"
+        echo "  - Puerto"
+        echo "  - Firewall"
+        echo
+
+    fi
+
+    pausa
+
+}
+############################################################
+# ACTIVAR ALERTAS POR CORREO
+############################################################
+
+activar_alertas_correo() {
+
+    header
+
+    titulo "ACTIVAR ALERTAS POR CORREO"
+
+    cargar_email || {
+
+        mensaje_error "Primero debe configurar el correo SMTP."
+
+        pausa
+
+        return
+
+    }
+
+    if [[ "$ALERTAS_CORREO" == "ON" ]]
+    then
+
+        mensaje_ok "Las alertas ya están activadas."
+
+        pausa
+
+        return
+
+    fi
+
+    sed -i 's/ALERTAS_CORREO="OFF"/ALERTAS_CORREO="ON"/' "$EMAIL_CONFIG"
+
+    mensaje_ok "Alertas por correo activadas."
+
+    pausa
+
+}
+############################################################
+# DESACTIVAR ALERTAS POR CORREO
+############################################################
+
+desactivar_alertas_correo() {
+
+    header
+
+    titulo "DESACTIVAR ALERTAS POR CORREO"
+
+    cargar_email || {
+
+        mensaje_error "No existe configuración de correo."
+
+        pausa
+
+        return
+
+    }
+
+    if [[ "$ALERTAS_CORREO" == "OFF" ]]
+    then
+
+        mensaje_ok "Las alertas ya están desactivadas."
+
+        pausa
+
+        return
+
+    fi
+
+    sed -i 's/ALERTAS_CORREO="ON"/ALERTAS_CORREO="OFF"/' "$EMAIL_CONFIG"
+
+    mensaje_ok "Alertas por correo desactivadas."
+
+    pausa
+
+}
+############################################################
+# AGREGAR DESTINATARIO
+############################################################
+
+agregar_destinatario() {
+
+    header
+    titulo "AGREGAR DESTINATARIO"
+
+    touch "$EMAIL_LISTA"
+    chmod 600 "$EMAIL_LISTA"
+
+    echo
+
+    read -rp "Correo electrónico: " CORREO
+
+    if [[ -z "$CORREO" ]]
+    then
+        mensaje_error "Debe ingresar un correo."
+        pausa
+        return
+    fi
+
+    if grep -Fxq "$CORREO" "$EMAIL_LISTA"
+    then
+        mensaje_error "Ese correo ya existe."
+    else
+        echo "$CORREO" >> "$EMAIL_LISTA"
+        mensaje_ok "Correo agregado correctamente."
+    fi
+
+    pausa
+
+}
+############################################################
+# ELIMINAR DESTINATARIO
+############################################################
+
+eliminar_destinatario() {
+
+    header
+
+    titulo "ELIMINAR DESTINATARIO"
+
+    echo
+
+
+    if [[ ! -f "$EMAIL_LISTA" ]] || [[ ! -s "$EMAIL_LISTA" ]]
+    then
+
+        mensaje_error "No existen destinatarios configurados."
+
+        pausa
+
+        return
+
+    fi
+
+
+    echo "Destinatarios actuales:"
+    echo
+
+
+    nl -w2 -s". " "$EMAIL_LISTA"
+
+
+    echo
+
+    read -rp "Número del correo a eliminar: " NUM
+
+
+    if ! [[ "$NUM" =~ ^[0-9]+$ ]]
+    then
+
+        mensaje_error "Número inválido."
+
+        pausa
+
+        return
+
+    fi
+
+
+    TOTAL=$(wc -l < "$EMAIL_LISTA")
+
+
+    if (( NUM < 1 || NUM > TOTAL ))
+    then
+
+        mensaje_error "El número no existe."
+
+        pausa
+
+        return
+
+    fi
+
+
+    CORREO=$(sed -n "${NUM}p" "$EMAIL_LISTA")
+
+
+    echo
+
+    echo "Se eliminará:"
+    echo "$CORREO"
+
+    echo
+
+
+    read -rp "¿Confirmar eliminación? [s/N]: " RESP
+
+
+    if [[ "$RESP" =~ ^[sS]$ ]]
+    then
+
+        sed -i "${NUM}d" "$EMAIL_LISTA"
+
+        mensaje_ok "Destinatario eliminado."
+
+        registrar_log "Destinatario eliminado: $CORREO"
+
+    else
+
+        echo "Operación cancelada."
+
+    fi
+
+
+    pausa
+
+}
+############################################################
+# VER DESTINATARIOS
+############################################################
+
+ver_destinatarios() {
+
+    header
+
+    titulo "DESTINATARIOS DE ALERTAS"
+
+    echo
+
+
+    if [[ ! -f "$EMAIL_LISTA" ]] || [[ ! -s "$EMAIL_LISTA" ]]
+    then
+
+        mensaje_error "No existen destinatarios configurados."
+
+        pausa
+
+        return
+
+    fi
+
+
+    echo "Correos que recibirán alertas:"
+    echo
+
+
+    nl -w2 -s". " "$EMAIL_LISTA"
+
+
+    echo
+
+    TOTAL=$(wc -l < "$EMAIL_LISTA")
+
+
+    echo "Total destinatarios: $TOTAL"
+
+
+    pausa
+
+}
+############################################################
+# VER CONFIGURACION CORREO SMTP
+############################################################
+
+ver_configuracion_correo() {
+
+    header
+
+    titulo "CONFIGURACION CORREO SMTP"
+
+    echo
+
+
+    if [[ ! -f "$EMAIL_CONFIG" ]]
+    then
+
+        mensaje_error "No existe configuración SMTP."
+
+        pausa
+
+        return
+
+    fi
+
+
+    source "$EMAIL_CONFIG"
+
+
+    echo "Servidor SMTP : $SMTP_HOST"
+
+    echo "Puerto SMTP   : $SMTP_PORT"
+
+    echo "TLS           : $SMTP_TLS"
+
+    echo
+
+    echo "Remitente     : $SMTP_FROM"
+
+    echo "Usuario SMTP  : $SMTP_USER"
+
+    echo "Contraseña    : ********"
+
+    echo
+
+
+    if [[ "$ALERTAS_CORREO" == "ON" ]]
+    then
+
+        echo -e "Estado alertas: ${VERDE}ACTIVADAS${RESET}"
+
+    else
+
+        echo -e "Estado alertas: ${ROJO}DESACTIVADAS${RESET}"
+
+    fi
+
+
+    echo
+
+
+    if [[ -f "$EMAIL_LISTA" ]] && [[ -s "$EMAIL_LISTA" ]]
+    then
+
+        TOTAL=$(wc -l < "$EMAIL_LISTA")
+
+        echo "Destinatarios configurados: $TOTAL"
+
+    else
+
+        echo "Destinatarios configurados: 0"
+
+    fi
+
+
+    echo
+
+    pausa
+
+}
+############################################################
+# ENVIAR CORREO DE PRUEBA A TODOS
+############################################################
+
+probar_correo() {
+
+    header
+
+    titulo "PRUEBA DE CORREO"
+
+
+    cargar_email || {
+
+        mensaje_error "No existe configuración SMTP."
+
+        pausa
+
+        return
+
+    }
+
+
+    if [[ ! -f "$EMAIL_LISTA" ]] || [[ ! -s "$EMAIL_LISTA" ]]
+    then
+
+        mensaje_error "No existen destinatarios configurados."
+
+        pausa
+
+        return
+
+    fi
+
+
+    MENSAJE="
+
+APC UPS MANAGER
+
+Correo de prueba enviado correctamente.
+
+Servidor : $(hostname)
+
+Fecha    : $(date)
+
+
+Si recibió este mensaje, la configuración SMTP es correcta.
+
+"
+
+
+    TOTAL=0
+
+
+    while IFS= read -r DESTINO
+    do
+
+        [[ -z "$DESTINO" ]] && continue
+
+
+        echo "$MENSAJE" | mail -s "Prueba APC UPS Manager" "$DESTINO"
+
+
+        if [[ $? -eq 0 ]]
+        then
+
+            echo "Enviado a: $DESTINO"
+
+            ((TOTAL++))
+
+        else
+
+            echo "Error enviando a: $DESTINO"
+
+        fi
+
+
+    done < "$EMAIL_LISTA"
+
+
+    echo
+
+
+    if [[ $TOTAL -gt 0 ]]
+    then
+
+        mensaje_ok "Correo enviado a $TOTAL destinatario(s)."
+
+        registrar_log "Prueba correo enviada a $TOTAL destinatarios."
+
+    else
+
+        mensaje_error "No se pudo enviar ningún correo."
+
+    fi
+
+
+    pausa
+
+}
 
 ############################################################
 # ESTADO COMPLETO
@@ -1754,18 +2428,16 @@ menu() {
         echo -e "${VERDE}14)${RESET} Probar Telegram"
 		echo -e "${VERDE}15)${RESET} Activar/desactivar alertas Telegram"
 		echo
-		echo -e "${VERDE}16)${RESET} Configurar correo"
-        echo -e "${VERDE}17)${RESET} Probar correo"
-        echo -e "${VERDE}18)${RESET} Activar/desactivar alertas correo"
+		echo -e "${VERDE}16)${AMARILLO} Menu Configurar Correo ${VERDE}SMTP / Alertas"
 		echo
-		echo -e "${VERDE}19)${RESET} Estado general del sistema"
+		echo -e "${VERDE}17)${RESET} Estado general del sistema"
 		echo
 		echo -e "${CYAN}# Instala Servicio para Alertas (Correo - Telegram) Bateria Baja / Corte de Luz"
 		echo
-		echo -e "${VERDE}20)${RESET} Instalar Servicio systemd UPS APC"
-		echo -e "${VERDE}21)${RESET} Activar UPS APC Monitor"
-        echo -e "${VERDE}22)${RESET} Desactivar UPS APC Monitor"
-        echo -e "${VERDE}23)${RESET} Estado UPS APC Monitor"
+		echo -e "${VERDE}18)${RESET} Instalar Servicio systemd UPS APC"
+		echo -e "${VERDE}19)${RESET} Activar UPS APC Monitor"
+        echo -e "${VERDE}20)${RESET} Desactivar UPS APC Monitor"
+        echo -e "${VERDE}21)${RESET} Estado UPS APC Monitor"
 		echo
         echo -e "${ROJO}0)${RESET} Salir"
 
@@ -1900,51 +2572,38 @@ menu() {
 			
             16)
 
-                configurar_correo
+                menu_correo
 
             ;;
 
-
-            17)
-
-                probar_correo
-
-            ;;
-
-
-            18)
-
-                toggle_alertas_correo
-
-            ;;
 			
-			19)
+			17)
 
                 panel_sistema
 
             ;;
 			
-			20)
+			18)
 
                 instalar_servicio_systemd
 
             ;;
 			
-			21)
+			19)
 
                 activar_monitor_ups
 
             ;;
 
 
-            22)
+            20)
 
                desactivar_monitor_ups
 
             ;;
 
 
-            23)
+            21)
 
                estado_monitor_ups
 
