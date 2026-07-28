@@ -1313,6 +1313,7 @@ echo -e "${AMARILLO}5)${RESET} Eliminar destinatario"
 echo -e "${AMARILLO}6)${RESET} Ver destinatarios"
 echo -e "${AMARILLO}7)${RESET} Enviar correo de prueba"
 echo -e "${AMARILLO}8)${RESET} Ver configuración SMTP"
+echo -e "${AMARILLO}9)${RESET} ${AMARILLO}Menu Modificar configuración SMTP${RESET}"
 
 echo
 echo -e "${ROJO}0)${RESET} Volver"
@@ -1369,7 +1370,11 @@ echo
                 ver_configuracion_correo
 
             ;;
-
+			
+            9)
+                modificar_configuracion_correo
+            ;;
+			
             0)
 
                 break
@@ -2183,7 +2188,109 @@ Si recibió este mensaje, la configuración SMTP es correcta.
     pausa
 
 }
+############################################################
+# MODIFICAR CONFIGURACION CORREO SMTP
+############################################################
 
+modificar_configuracion_correo() {
+
+    if [[ ! -f "$EMAIL_CONFIG" ]]; then
+        mensaje_error "No existe una configuración SMTP."
+        pausa
+        return
+    fi
+
+    source "$EMAIL_CONFIG"
+
+    while true; do
+
+        header
+        titulo "MODIFICAR CONFIGURACION SMTP"
+        echo
+
+        echo "Configuración actual:"
+        echo "------------------------------------------------"
+        echo "1) Servidor SMTP : $SMTP_HOST"
+        echo "2) Puerto SMTP   : $SMTP_PORT"
+        echo "3) TLS           : $SMTP_TLS"
+        echo "4) Remitente     : $SMTP_FROM"
+        echo "5) Usuario SMTP  : $SMTP_USER"
+        echo "6) Contraseña    : ********"
+        echo "------------------------------------------------"
+        echo
+        echo "7) Guardar cambios"
+        echo "0) Volver"
+        echo
+
+        read -rp "Seleccione una opción: " op
+
+        case $op in
+
+            1)
+                read -rp "Nuevo servidor SMTP: " SMTP_HOST
+                ;;
+
+            2)
+                read -rp "Nuevo puerto SMTP: " SMTP_PORT
+                ;;
+
+            3)
+                echo
+                echo "1) SI"
+                echo "2) NO"
+                read -rp "Seleccione: " tls
+
+                case $tls in
+                    1) SMTP_TLS="SI" ;;
+                    2) SMTP_TLS="NO" ;;
+                    *) mensaje_error "Opción inválida"; sleep 1 ;;
+                esac
+                ;;
+
+            4)
+                read -rp "Nuevo remitente: " SMTP_FROM
+                ;;
+
+            5)
+                read -rp "Nuevo usuario SMTP: " SMTP_USER
+                ;;
+
+            6)
+                read -rsp "Nueva contraseña: " SMTP_PASS
+                echo
+                ;;
+
+            7)
+
+                cat > "$EMAIL_CONFIG" <<EOF
+SMTP_HOST="$SMTP_HOST"
+SMTP_PORT="$SMTP_PORT"
+SMTP_TLS="$SMTP_TLS"
+SMTP_FROM="$SMTP_FROM"
+SMTP_USER="$SMTP_USER"
+SMTP_PASS="$SMTP_PASS"
+ALERTAS_CORREO="${ALERTAS_CORREO:-OFF}"
+EOF
+
+                mensaje_ok "Configuración SMTP actualizada correctamente."
+                pausa
+                return
+                ;;
+
+            0)
+                return
+                ;;
+
+            *)
+                mensaje_error "Opción inválida."
+                sleep 1
+                ;;
+
+        esac
+
+    done
+
+}
 ############################################################
 # ESTADO COMPLETO
 ############################################################
