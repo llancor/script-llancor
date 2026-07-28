@@ -287,14 +287,14 @@ echo "        GESTOR DE SCRIPTS LLANCOR"
 echo "══════════════════════════════════════════════"
 echo -e "${NC}"
 
-echo -e "${GREEN}[1]${NC} Ver scripts disponibles en GitHub"
-echo -e "${GREEN}[2]${NC} Descargar script"
-echo -e "${GREEN}[3]${NC} Ejecutar script descargado"
-echo -e "${GREEN}[4]${NC} Actualizar script"
-echo -e "${GREEN}[5]${NC} Ver scripts descargados"
-echo -e "${GREEN}[6]${NC} Eliminar script"
-echo -e "${GREEN}[7]${NC} Instalar/Actualizar dmenu"
-echo -e "${RED}[0]${NC} Salir"
+echo -e "${YELLOW}[1]${NC} Ver scripts disponibles en GitHub"
+echo -e "${YELLOW}[2]${NC} Descargar script"
+echo -e "${YELLOW}[3]${NC} Ejecutar script descargado"
+echo -e "${YELLOW}[4]${NC} Actualizar script"
+echo -e "${YELLOW}[5]${NC} Ver scripts descargados"
+echo -e "${YELLOW}[6]${NC} Eliminar script"
+echo -e "${YELLOW}[7]${NC} Instalar/Actualizar dmenu"
+echo -e "${CYAN}[0]${NC} Salir"
 echo
 
     read -rp "Seleccione una opción: " MENU
