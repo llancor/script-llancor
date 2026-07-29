@@ -650,19 +650,108 @@ instalar_nut() {
 # CONFIGURAR NUT PARA APC SRV3KI
 ############################################################
 
-
 configurar_nut_apc() {
-
 
     header
 
-    titulo "CONFIGURANDO APC SRV3KI"
+    titulo "CONFIGURAR APC EASY UPS"
 
+    echo
+    echo -e "${AMARILLO}1)${RESET} Detectar automáticamente (USB + RS232)"
+    echo -e "${AMARILLO}2)${RESET} Buscar solamente USB"
+    echo -e "${AMARILLO}3)${RESET} Buscar solamente RS232"
+    echo
+    echo -e "${ROJO}0)${RESET} Cancelar"
+    echo
+
+    read -rp "Seleccione una opción: " TIPO
+
+    case $TIPO in
+
+        1)
+            PATRON="/dev/ttyUSB* /dev/ttyS*"
+        ;;
+
+        2)
+            PATRON="/dev/ttyUSB*"
+        ;;
+
+        3)
+            PATRON="/dev/ttyS*"
+        ;;
+
+        0)
+            return
+        ;;
+
+        *)
+            mensaje_error "Opción inválida."
+            pausa
+            return
+        ;;
+
+    esac
+
+
+    header
+    titulo "BUSCANDO UPS"
 
     echo
 
+    UPS_ENCONTRADA=0
 
-    echo "Creando configuración NUT..."
+    for PUERTO in $PATRON
+    do
+
+        [[ ! -e "$PUERTO" ]] && continue
+
+        echo -ne "Probando $PUERTO ... "
+
+cat > /etc/nut/ups.conf <<EOF
+[apc]
+driver = nutdrv_qx
+port = $PUERTO
+desc = APC Easy UPS SRV3KI
+EOF
+
+        upsdrvctl stop >/dev/null 2>&1
+        sleep 1
+
+        upsdrvctl start >/dev/null 2>&1
+
+        sleep 3
+
+        if upsc apc >/tmp/ups_test 2>/dev/null
+        then
+
+            MODELO=$(grep "device.model" /tmp/ups_test | cut -d: -f2- | xargs)
+
+            echo -e "${VERDE}OK${RESET}"
+
+            UPS_ENCONTRADA=1
+
+            break
+
+        else
+
+            echo -e "${ROJO}NO${RESET}"
+
+        fi
+
+    done
+
+
+    if [[ $UPS_ENCONTRADA -eq 0 ]]
+    then
+
+        echo
+        mensaje_error "No se encontró ninguna UPS."
+
+        pausa
+
+        return
+
+    fi
 
 
 cat > /etc/nut/nut.conf <<EOF
@@ -670,40 +759,28 @@ MODE=standalone
 EOF
 
 
-
-cat > /etc/nut/ups.conf <<EOF
-[apc]
-
-driver = nutdrv_qx
-
-port = /dev/ttyUSB0
-
-desc = APC Easy UPS SRV3KI
-
-EOF
-
-
-
-    echo
-    echo "Ajustando permisos USB..."
-
-
     usermod -aG dialout nut
 
-
-
-    systemctl enable nut-server
-    systemctl enable nut-monitor
-
-
+    systemctl enable nut-server >/dev/null 2>&1
+    systemctl enable nut-monitor >/dev/null 2>&1
 
     systemctl restart nut-server
     systemctl restart nut-monitor
 
+    echo
+    linea
 
+    echo -e "${VERDE}UPS detectada correctamente${RESET}"
 
-    mensaje_ok "Configuración APC SRV3KI aplicada."
+    echo
 
+    printf "%-20s %s\n" "Modelo:" "$MODELO"
+    printf "%-20s %s\n" "Puerto:" "$PUERTO"
+    printf "%-20s %s\n" "Driver:" "nutdrv_qx"
+
+    linea
+
+    mensaje_ok "Configuración aplicada."
 
     pausa
 
