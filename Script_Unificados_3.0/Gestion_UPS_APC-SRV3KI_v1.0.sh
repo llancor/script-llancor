@@ -2598,7 +2598,7 @@ menu() {
         echo
 		echo -e "${VERDE}7)${RESET} Verificar dependencias NUT - ${CYAN}(1°)${RESET}"
         echo -e "${VERDE}8)${RESET} Instalar NUT - ${CYAN}(2°)${RESET}"
-        echo -e "${VERDE}9)${RESET} Configurar APC SRV3KI - ${CYAN}(3°)${RESET}"
+        echo -e "${VERDE}9)${RESET} Configurar APC SRV3KI USB/RS232 - ${CYAN}(3°)${RESET}"
         echo -e "${VERDE}10)${RESET} Probar comunicación UPS - ${CYAN}(4°)${RESET}"
         echo
 		echo -e "${CYAN}# Apagado Automatico de PC-SERVIDOR"
