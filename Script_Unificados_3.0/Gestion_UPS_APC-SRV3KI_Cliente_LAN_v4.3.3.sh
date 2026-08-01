@@ -15,6 +15,15 @@ BACKUP_DIR="/root/backup-nut"
 LOGFILE="/var/log/ups-manager.log"
 
 CONFIG_DIR="/etc/nut"
+############################################################
+# RUTAS
+############################################################
+
+SCRIPT_ORIGINAL="/root/Gestion_UPS_APC-SRV3KI_Cliente_LAN_v4.3.3.sh"
+
+SCRIPT_SERVICIO="/usr/local/sbin/ups-apc-monitor"
+
+SERVICIO="/etc/systemd/system/ups-apc-monitor.service"
 
 ############################################################
 # COLORES (deben definirse ANTES de usarse en iconos/mensajes)
@@ -2305,17 +2314,6 @@ crear_servicio_ups() {
     titulo "CREAR SERVICIO UPS APC MONITOR"
 
     ############################################################
-    # RUTAS
-    ############################################################
-
-    SCRIPT_ORIGINAL="/root/Gestion_UPS_APC-SRV3KI_Cliente_LAN_v4.3.3.sh"
-
-    SCRIPT_SERVICIO="/usr/local/sbin/ups-apc-monitor"
-
-    SERVICIO="/etc/systemd/system/ups-apc-monitor.service"
-
-
-    ############################################################
     # VERIFICAR SCRIPT ORIGINAL
     ############################################################
 
@@ -2618,6 +2616,83 @@ estado_monitor_ups() {
 
     pausa
 
+}
+############################################################
+# MENU PROXMOX
+############################################################
+
+menu_proxmox() {
+
+    while true
+    do
+
+        clear
+
+        echo
+		echo
+		echo -e "${CYAN}===== PROXMOX MANAGER =====${RESET}"
+		echo
+		echo -e "${AMARILLO}1)${RESET} Apagar máquinas virtuales"
+		echo -e "${AMARILLO}2)${RESET} Apagar contenedores LXC"
+		echo -e "${AMARILLO}3)${RESET} Apagar host Proxmox"
+		echo -e "${AMARILLO}0)${RESET} Volver"
+		echo
+
+        read -rp "Seleccione una opción: " OPCION
+
+        case "$OPCION" in
+
+            1)
+                clear
+                apagar_vm_proxmox
+                echo
+                read -rp "Presione ENTER para continuar..."
+                ;;
+
+            2)
+                clear
+                apagar_lxc_proxmox
+                echo
+                read -rp "Presione ENTER para continuar..."
+                ;;
+
+            3)
+                clear
+
+                echo
+                echo -e "${ROJO}==============================================${RESET}"
+                echo -e "${ROJO}          APAGADO HOST PROXMOX               ${RESET}"
+                echo -e "${ROJO}==============================================${RESET}"
+                echo
+                echo -e "${AMARILLO}ADVERTENCIA: Esta acción apagará el servidor.${RESET}"
+                echo
+
+                read -rp "¿Desea continuar? [s/N]: " CONFIRMAR
+
+                if [[ "$CONFIRMAR" =~ ^[Ss]$ ]]
+                then
+                    apagar_host_proxmox
+                else
+                    echo
+                    echo -e "${AMARILLO}Operación cancelada.${RESET}"
+                    sleep 2
+                fi
+                ;;
+
+            0)
+                clear
+                return
+                ;;
+
+            *)
+                echo
+                echo -e "${ROJO}Opción inválida.${RESET}"
+                sleep 2
+                ;;
+
+        esac
+
+    done
 }
 ############################################################
 # APAGAR MAQUINAS VIRTUALES (solo aplica en nodos Proxmox)
@@ -3517,6 +3592,8 @@ do
     echo -e "${AMARILLO}13)${RESET} Editar configuración del monitor (nano)"
     echo -e "${AMARILLO}14)${RESET} Ver estado de alertas"
     echo
+	echo -e "${AMARILLO}15)${AMARILLO} Menu Apagado Server Proxmox - ${VERDE} Apagar VM / PC"
+	
     linea
 
     echo -e "${ROJO}0)${RESET} Volver"
@@ -3565,6 +3642,9 @@ do
             estado_alertas
             pausa
         ;;
+		
+		15)	menu_proxmox ;;
+				
 
         0) return ;;
 
