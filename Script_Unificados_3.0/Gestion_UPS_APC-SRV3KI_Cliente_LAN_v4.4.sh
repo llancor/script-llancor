@@ -3727,9 +3727,9 @@ do
     echo -e "${AMARILLO}13)${RESET} Editar configuración del monitor (nano)"
 	echo
     echo -e "${AMARILLO}14)${RESET} Ver estado de alertas"
-	echo -e "${AMARILLO}14)${RESET} Ver logs UPS-APC del administrador"
+	echo -e "${AMARILLO}15)${RESET} Ver logs UPS-APC del administrador"
     echo
-	echo -e "${AMARILLO}15)${AMARILLO} Menu Apagado Server Proxmox - ${VERDE} Apagar VM / PC"
+	echo -e "${AMARILLO}16)${AMARILLO} Menu Apagado Server Proxmox - ${VERDE} Apagar VM / PC"
 	
     linea
 
@@ -3780,9 +3780,7 @@ do
             pausa
         ;;
 		
-		15)	menu_proxmox ;;
-		
-		16)
+		15)
 
                 echo
                 tail -50 "$LOGFILE"
@@ -3790,7 +3788,8 @@ do
                 pausa
 
         ;;
-				
+		
+		16)	menu_proxmox ;;		
 
         0) return ;;
 
