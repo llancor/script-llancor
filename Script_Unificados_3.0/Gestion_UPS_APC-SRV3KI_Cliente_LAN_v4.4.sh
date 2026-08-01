@@ -3501,12 +3501,12 @@ servicio_apagado_ups() {
         # ACTUALIZAR PANEL
         ####################################################
 
-        if [[ -t 1 ]]
-        then
-            actualizar_panel
-        else
-            registrar_log "Estado:$ESTADO Bateria:$BATERIA Autonomia:$AUTONOMIA"
-        fi
+		if [[ -t 1 ]]
+		then
+
+		actualizar_panel
+
+		fi
 
         ####################################################
         # UPS EN BATERÍA
