@@ -3725,7 +3725,9 @@ do
     echo -e "${AMARILLO}11)${RESET} Panel UPS en tiempo real ${VERDE}*(Monitor Gráfico)"
     echo -e "${AMARILLO}12)${RESET} Configurar apagado automático"
     echo -e "${AMARILLO}13)${RESET} Editar configuración del monitor (nano)"
+	echo
     echo -e "${AMARILLO}14)${RESET} Ver estado de alertas"
+	echo -e "${AMARILLO}14)${RESET} Ver logs UPS-APC del administrador"
     echo
 	echo -e "${AMARILLO}15)${AMARILLO} Menu Apagado Server Proxmox - ${VERDE} Apagar VM / PC"
 	
@@ -3779,6 +3781,15 @@ do
         ;;
 		
 		15)	menu_proxmox ;;
+		
+		16)
+
+                echo
+                tail -50 "$LOGFILE"
+
+                pausa
+
+        ;;
 				
 
         0) return ;;
