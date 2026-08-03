@@ -19,8 +19,20 @@ app.put('/api/profile',auth,asyncHandler(async(req,res)=>{const {password,curren
 app.use('/api',auth,crud);
 app.use((err:any,req:any,res:any,next:any)=>{console.error(err);res.status(err.name==='ZodError'?400:500).json({message:err.issues?.[0]?.message||err.message||'Error interno'});});
 async function migrateCompatibility(){
-  await db.$executeRawUnsafe('ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified');
-  await db.$executeRawUnsafe("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_host VARCHAR(190) NULL, ADD COLUMN IF NOT EXISTS smtp_port SMALLINT UNSIGNED NOT NULL DEFAULT 587, ADD COLUMN IF NOT EXISTS smtp_secure BOOLEAN NOT NULL DEFAULT FALSE, ADD COLUMN IF NOT EXISTS smtp_user VARCHAR(190) NULL, ADD COLUMN IF NOT EXISTS smtp_password VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS mail_from VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE, ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) NULL");
+  const existing=async(table:string)=>new Set((await db.$queryRawUnsafe<Array<{COLUMN_NAME:string}>>(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'`
+  )).map(column=>column.COLUMN_NAME));
+  const userColumns=await existing('users');
+  if(!userColumns.has('enabled'))await db.$executeRawUnsafe('ALTER TABLE users ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified');
+  const configColumns=await existing('configuracion');
+  const configDefinitions:Record<string,string>={
+    smtp_host:'VARCHAR(190) NULL',smtp_port:'SMALLINT UNSIGNED NOT NULL DEFAULT 587',smtp_secure:'BOOLEAN NOT NULL DEFAULT FALSE',
+    smtp_user:'VARCHAR(190) NULL',smtp_password:'VARCHAR(255) NULL',mail_from:'VARCHAR(255) NULL',
+    telegram_enabled:'BOOLEAN NOT NULL DEFAULT FALSE',telegram_bot_token:'VARCHAR(255) NULL',telegram_chat_id:'VARCHAR(100) NULL'
+  };
+  for(const [column,definition] of Object.entries(configDefinitions)){
+    if(!configColumns.has(column))await db.$executeRawUnsafe(`ALTER TABLE configuracion ADD COLUMN ${column} ${definition}`);
+  }
   const columns=await db.$queryRawUnsafe<Array<{COLUMN_NAME:string;DATA_TYPE:string}>>(
     "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turnos' AND COLUMN_NAME IN ('hora_inicio','hora_fin')"
   );
