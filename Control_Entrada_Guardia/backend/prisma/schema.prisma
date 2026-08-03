@@ -101,6 +101,7 @@ model User {
   permisos Json @default("{}")
   email_verified Boolean @default(false)
   google_id String? @unique
+  enabled Boolean @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
   guardias_creados Guardia[] @relation("GuardiaCreator")
@@ -297,6 +298,15 @@ model Alerta {
 model Configuracion {
   id Int @id @default(1)
   permitir_registro_publico Boolean @default(false)
+  smtp_host String?
+  smtp_port Int @default(587)
+  smtp_secure Boolean @default(false)
+  smtp_user String?
+  smtp_password String?
+  mail_from String?
+  telegram_enabled Boolean @default(false)
+  telegram_bot_token String?
+  telegram_chat_id String?
   updated_at DateTime @updatedAt
   @@map("configuracion")
 }

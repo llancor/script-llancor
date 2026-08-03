@@ -1,4 +1,5 @@
 USE guardiapro;
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- Contraseña del usuario: GuardiaPro2026! (el seed Prisma genera el hash recomendado).
 INSERT INTO users (id,full_name,email,password,role,rango,permisos,email_verified)
 VALUES ('usr_admin_demo','Administrador GuardiaPro','admin@guardiapro.cl','$2b$12$Ep9Ot5NjLRtgPhyezG47R.0n0wrJQNAj1MxadXYvP8LzWoQOeuDqu','admin','supervisor',JSON_OBJECT('guardias',true,'turnos',true,'rondas',true,'recintos',true,'entradas',true,'reportes',true,'alertas',true,'usuarios',true,'configuracion',true),true)

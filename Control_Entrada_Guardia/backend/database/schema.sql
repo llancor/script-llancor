@@ -1,5 +1,6 @@
 CREATE DATABASE IF NOT EXISTS guardiapro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE guardiapro;
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE users (
   id VARCHAR(30) PRIMARY KEY,
@@ -11,6 +12,7 @@ CREATE TABLE users (
   telefono VARCHAR(30) NULL, cargo VARCHAR(120) NULL,
   permisos JSON NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
   google_id VARCHAR(190) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -41,7 +43,7 @@ CREATE TABLE guardias (
 
 CREATE TABLE turnos (
   id VARCHAR(30) PRIMARY KEY, guardia_id VARCHAR(30) NULL, guardia_nombre VARCHAR(150) NOT NULL,
-  tipo_turno ENUM('Manana','Tarde','Noche') NOT NULL, fecha DATE NOT NULL, hora_inicio TIME NOT NULL, hora_fin TIME NOT NULL,
+  tipo_turno ENUM('Manana','Tarde','Noche') NOT NULL, fecha DATE NOT NULL, hora_inicio VARCHAR(8) NOT NULL, hora_fin VARCHAR(8) NOT NULL,
   ubicacion VARCHAR(255), observaciones TEXT, estado ENUM('Programado','En_curso','Completado','Cancelado') NOT NULL DEFAULT 'Programado',
   recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150), created_by_id VARCHAR(30) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -100,6 +102,10 @@ CREATE TABLE alertas (
 
 CREATE TABLE configuracion (
   id TINYINT UNSIGNED PRIMARY KEY DEFAULT 1, permitir_registro_publico BOOLEAN NOT NULL DEFAULT FALSE,
+  smtp_host VARCHAR(190) NULL, smtp_port SMALLINT UNSIGNED NOT NULL DEFAULT 587,
+  smtp_secure BOOLEAN NOT NULL DEFAULT FALSE, smtp_user VARCHAR(190) NULL, smtp_password VARCHAR(255) NULL,
+  mail_from VARCHAR(255) NULL, telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  telegram_bot_token VARCHAR(255) NULL, telegram_chat_id VARCHAR(100) NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT chk_config_singleton CHECK (id = 1)
 ) ENGINE=InnoDB;
@@ -109,4 +115,3 @@ CREATE TABLE otp_tokens (
   expires_at DATETIME NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_otp_email_purpose (email, purpose), KEY idx_otp_expires (expires_at)
 ) ENGINE=InnoDB;
-
