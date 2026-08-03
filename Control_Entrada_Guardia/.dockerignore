@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+.env.*
+!.env.docker.example
+*.log
+.pnpm-store
+
