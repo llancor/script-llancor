@@ -1,0 +1,13 @@
+{
+  "name": "guardiapro",
+  "private": true,
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c green,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "db:push": "npm run db:push -w backend",
+    "db:seed": "npm run db:seed -w backend"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}
+

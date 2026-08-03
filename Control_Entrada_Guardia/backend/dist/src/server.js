@@ -1,0 +1,41 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import rateLimit from 'express-rate-limit';
+import bcrypt from 'bcryptjs';
+import authRoutes from './auth.js';
+import { crud } from './crud.js';
+import { auth, admin, asyncHandler } from './middleware.js';
+import { db, publicUser, sendEmail } from './lib.js';
+const app = express();
+const server = createServer(app);
+const io = new Server(server, { cors: { origin: process.env.FRONTEND_URL } });
+app.set('io', io);
+app.use(helmet());
+app.use(cors({ origin: process.env.FRONTEND_URL }));
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan('dev'));
+app.use('/api/auth', rateLimit({ windowMs: 60_000, limit: 30 }), authRoutes);
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/dashboard', auth, asyncHandler(async (req, res) => { const start = new Date(); start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); const [guardias, turnos, alertas, entradas, reportes, rondas, alertasLista, turnosLista] = await Promise.all([db.guardia.count({ where: { estado: 'Activo' } }), db.turno.count({ where: { fecha: { gte: start, lt: end } } }), db.alerta.count({ where: { estado: 'Activa' } }), db.entrada.count({ where: { estado: 'Dentro' } }), db.reporte.count({ where: { estado: 'Abierto' } }), db.ronda.findMany({ take: 5, orderBy: { fecha_hora_inicio: 'desc' } }), db.alerta.findMany({ where: { estado: 'Activa' }, take: 5, orderBy: { fecha: 'desc' } }), db.turno.findMany({ where: { fecha: { gte: start, lt: end } }, take: 5, orderBy: { hora_inicio: 'asc' } })]); res.json({ stats: { guardias, turnos, alertas, entradas, reportes, rondas: rondas.length }, rondas, alertasLista, turnosLista }); }));
+app.get('/api/users', auth, admin, asyncHandler(async (req, res) => res.json((await db.user.findMany({ orderBy: { created_at: 'desc' } })).map(publicUser))));
+app.post('/api/users/invite', auth, admin, asyncHandler(async (req, res) => { const temp = Math.random().toString(36).slice(-10) + 'A1!'; const user = await db.user.create({ data: { ...req.body, password: await bcrypt.hash(temp, 12), email_verified: true } }); await sendEmail(user.email, 'Invitación a GuardiaPro', `Tu contraseña temporal es ${temp}`); res.status(201).json(publicUser(user)); }));
+app.put('/api/users/:id', auth, admin, asyncHandler(async (req, res) => { const { password, ...data } = req.body; res.json(publicUser(await db.user.update({ where: { id: req.params.id }, data }))); }));
+app.delete('/api/users/:id', auth, admin, asyncHandler(async (req, res) => { if (req.params.id === req.user.id)
+    return res.status(400).json({ message: 'No puedes eliminar tu usuario desde administración' }); await db.user.delete({ where: { id: req.params.id } }); res.status(204).end(); }));
+app.get('/api/config', auth, asyncHandler(async (req, res) => res.json(await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }))));
+app.put('/api/config', auth, admin, asyncHandler(async (req, res) => res.json(await db.configuracion.upsert({ where: { id: 1 }, update: req.body, create: { id: 1, ...req.body } }))));
+app.put('/api/profile', auth, asyncHandler(async (req, res) => { const { password, current_password, ...data } = req.body; if (password) {
+    const me = await db.user.findUniqueOrThrow({ where: { id: req.user.id } });
+    if (!me.password || !await bcrypt.compare(current_password, me.password))
+        return res.status(400).json({ message: 'Contraseña actual incorrecta' });
+    data.password = await bcrypt.hash(password, 12);
+} res.json(publicUser(await db.user.update({ where: { id: req.user.id }, data }))); }));
+app.delete('/api/profile', auth, asyncHandler(async (req, res) => { await db.user.delete({ where: { id: req.user.id } }); res.status(204).end(); }));
+app.use('/api', auth, crud);
+app.use((err, req, res, next) => { console.error(err); res.status(err.name === 'ZodError' ? 400 : 500).json({ message: err.issues?.[0]?.message || err.message || 'Error interno' }); });
+server.listen(Number(process.env.PORT || 4000), () => console.log(`GuardiaPro API en http://localhost:${process.env.PORT || 4000}`));
