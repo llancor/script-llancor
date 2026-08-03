@@ -2,9 +2,17 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
-INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$HOME/guardiapro}"
+DEFAULT_INSTALL_ROOT="/opt/guardiapro"
+DEFAULT_HTTP_PORT="8080"
+INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
 PROJECT_SUBDIR="Control_Entrada_Guardia"
 APP_DIR="$SCRIPT_DIR"
+
+# Si se ejecuta desde una copia instalada, administra esa instancia concreta.
+if [[ -z "${GUARDIAPRO_INSTALL_DIR:-}" && -f "$SCRIPT_DIR/docker-compose.yml" ]]; then
+  detected_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$detected_root" ]] && INSTALL_ROOT="$detected_root"
+fi
 
 # Si el instalador está separado del proyecto, reutiliza una descarga anterior.
 if [[ ! -f "$APP_DIR/docker-compose.yml" && -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
@@ -17,10 +25,39 @@ title(){ clear; printf "${C}${B}========================================\n  Guar
 pause(){ printf '\nPresiona Enter para continuar...'; read -r; }
 has(){ command -v "$1" >/dev/null 2>&1; }
 root(){ if [[ ${EUID:-$(id -u)} -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
+instance_name(){
+  local path="$1" base suffix
+  base="$(basename "$path" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
+  [[ -n "$base" ]] || base="guardiapro"
+  suffix="$(printf '%s' "$path" | sha256sum | cut -c1-8)"
+  printf 'guardiapro_%s_%s' "$base" "$suffix"
+}
+select_installation(){
+  local chosen port
+  printf "Ruta de instalacion [${C}%s${N}]: " "$DEFAULT_INSTALL_ROOT"
+  read -r chosen
+  chosen="${chosen:-$DEFAULT_INSTALL_ROOT}"
+  if [[ "$chosen" != /* || "$chosen" == "/" || "$chosen" == "/opt" ]]; then
+    printf "${R}La ruta debe ser absoluta y no puede ser / ni /opt.${N}\n"
+    return 1
+  fi
+  INSTALL_ROOT="${chosen%/}"
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
+  printf "Puerto HTTP [${C}%s${N}]: " "$DEFAULT_HTTP_PORT"
+  read -r port
+  port="${port:-$DEFAULT_HTTP_PORT}"
+  if ! [[ "$port" =~ ^[0-9]+$ ]] || ((port < 1 || port > 65535)); then
+    printf "${R}Puerto invalido. Debe estar entre 1 y 65535.${N}\n"
+    return 1
+  fi
+  INSTALL_HTTP_PORT="$port"
+}
 dc(){
   if ! has docker; then printf "${R}Docker no está instalado.${N}\n"; return 1; fi
   if ! docker info >/dev/null 2>&1; then printf "${R}Docker no está accesible. Usa sudo o vuelve a iniciar sesión tras agregarte al grupo docker.${N}\n"; return 1; fi
-  docker compose "$@"
+  local project_name
+  project_name="$(getenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")")"
+  docker compose --project-name "$project_name" "$@"
 }
 
 project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
@@ -53,7 +90,7 @@ download_project(){
     printf 'Elimínala, muévela o define otra ruta con GUARDIAPRO_INSTALL_DIR.\n'
     return 1
   else
-    mkdir -p "$(dirname "$INSTALL_ROOT")" || return 1
+    root install -d -o "$(id -un)" -g "$(id -gn)" "$INSTALL_ROOT" || return 1
     git clone --depth 1 --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
   fi
   APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
@@ -79,7 +116,8 @@ prepare_env(){
         'MYSQL_ROOT_PASSWORD=' \
         'JWT_SECRET=' \
         'APP_URL=' \
-        'HTTP_PORT=80' \
+        "HTTP_PORT=$DEFAULT_HTTP_PORT" \
+        "COMPOSE_PROJECT_NAME=$(instance_name "$INSTALL_ROOT")" \
         'GOOGLE_CLIENT_ID=' \
         'SMTP_HOST=' \
         'SMTP_PORT=587' \
@@ -91,7 +129,8 @@ prepare_env(){
     setenv MYSQL_PASSWORD "$(openssl rand -hex 24)"
     setenv MYSQL_ROOT_PASSWORD "$(openssl rand -hex 24)"
     setenv JWT_SECRET "$(openssl rand -hex 48)"
-    setenv HTTP_PORT 80
+    setenv HTTP_PORT "${INSTALL_HTTP_PORT:-$DEFAULT_HTTP_PORT}"
+    setenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")"
     local server_ip
     server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     [[ -n "$server_ip" ]] && setenv APP_URL "http://${server_ip}"
@@ -118,18 +157,23 @@ dependencies(){
 }
 
 show_url(){
-  prepare_env; local port url ip; port="$(getenv HTTP_PORT 80)"; url="$(getenv APP_URL '')"; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  printf "\n${B}Puerto publicado:${N} %s\n" "$port"
+  prepare_env; local port url ip; port="$(getenv HTTP_PORT "$DEFAULT_HTTP_PORT")"; url="$(getenv APP_URL '')"; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  printf "\n${B}Ruta instalada:${N} %s\n" "$INSTALL_ROOT"
+  printf "${B}Instancia Docker:${N} %s\n" "$(getenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")")"
+  printf "${B}Puerto publicado:${N} %s\n" "$port"
   [[ -n "$url" ]] && printf "${B}URL configurada:${N} ${C}%s${N}\n" "$url"
   [[ -n "$ip" ]] && printf "${B}Acceso por IP:${N} ${C}http://%s:%s${N}\n" "$ip" "$port"
 }
 
 install_app(){
   title
+  select_installation || return
   if ! has docker; then printf "${R}Primero usa la opción Instalar dependencias.${N}\n"; return; fi
   download_project || return
   title
   prepare_env; local url; printf "URL actual: ${C}%s${N}\n" "$(getenv APP_URL '')"; read -rp 'URL pública (Enter para conservar): ' url
+  setenv HTTP_PORT "$INSTALL_HTTP_PORT"
+  setenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")"
   [[ -n "$url" ]] && setenv APP_URL "$url"
   printf "\n${B}Construyendo y arrancando GuardiaPro...${N}\n"
   if dc up -d --build; then printf "${G}Instalación terminada.${N}\n"; show_url; else printf "${R}Falló la instalación. Revisa los registros desde el menú de estado.${N}\n"; fi
@@ -142,7 +186,7 @@ services(){
 }
 
 port(){
-  title; prepare_env; local p; printf "Puerto actual: ${C}%s${N}\n" "$(getenv HTTP_PORT 80)"; read -rp 'Nuevo puerto (1-65535): ' p
+  title; prepare_env; local p; printf "Puerto actual: ${C}%s${N}\n" "$(getenv HTTP_PORT "$DEFAULT_HTTP_PORT")"; read -rp 'Nuevo puerto (1-65535): ' p
   if ! [[ "$p" =~ ^[0-9]+$ ]] || ((p<1 || p>65535)); then printf "${R}Puerto inválido.${N}\n"; return; fi
   setenv HTTP_PORT "$p"
   if dc up -d --force-recreate frontend; then printf "${G}Puerto actualizado.${N}\n"; show_url; fi
@@ -161,10 +205,29 @@ users(){
 }
 
 uninstall_app(){
-  title; printf "${C}${B}Desinstalar GuardiaPro${N}\n\n${Y}1)${C} Quitar contenedores conservando datos${N}\n${Y}2)${C} Quitar contenedores y eliminar base de datos${N}\n${Y}3)${C} Cancelar${N}\n\n"; read -rp 'Opción: ' o
+  title; printf "${C}${B}Desinstalar GuardiaPro${N}\n\n${Y}1)${C} Detener y quitar contenedores conservando datos${N}\n${Y}2)${C} Desinstalacion completa: contenedores, imagenes, base de datos y archivos${N}\n${Y}3)${C} Cancelar${N}\n\n"; read -rp 'Opción: ' o
   case "$o" in
     1) dc down --remove-orphans; printf "${G}Aplicación retirada; datos conservados.${N}\n";;
-    2) local x; read -rp 'Escribe ELIMINAR para borrar todos los datos: ' x; if [[ "$x" == ELIMINAR ]]; then dc down -v --remove-orphans; printf "${R}Aplicación y base de datos eliminadas.${N}\n"; else printf 'Cancelado.\n'; fi;;
+    2)
+      local x target
+      read -rp 'Escribe ELIMINAR TODO para borrar permanentemente GuardiaPro: ' x
+      if [[ "$x" == 'ELIMINAR TODO' ]]; then
+        dc down -v --rmi local --remove-orphans || return
+        target="$(realpath -m "$INSTALL_ROOT")"
+        case "$target" in
+          /opt/*|/root/*|/home/*/*)
+            if [[ ! -f "$target/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
+              printf "${R}No se encontro una instalacion GuardiaPro valida en $target.${N}\n"
+              return
+            fi
+            cd / || return
+            root rm -rf -- "$target"
+            printf "${R}GuardiaPro, sus imagenes, base de datos y archivos fueron eliminados.${N}\n"
+            exit 0
+            ;;
+          *) printf "${R}Ruta no permitida para borrado automatico: $target${N}\n";;
+        esac
+      else printf 'Cancelado.\n'; fi;;
     *) printf 'Cancelado.\n';;
   esac
 }

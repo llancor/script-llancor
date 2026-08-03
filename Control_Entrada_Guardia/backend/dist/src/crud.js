@@ -6,7 +6,7 @@ const dateFields = { guardia: ['fecha_ingreso'], turno: ['fecha'], ronda: ['fech
 const normalize = (model, body) => Object.fromEntries(Object.entries(body).map(([k, v]) => [k, dateFields[model]?.includes(k) && v ? new Date(v) : v]));
 export const crud = Router();
 crud.param('model', (req, res, next, model) => allowed.includes(model) ? next() : res.status(404).json({ message: 'Recurso no encontrado' }));
-crud.use('/:model', (req, res, next) => { const permission = `${req.params.model}s`; if (req.user?.role === 'admin' || req.user?.permisos?.[permission] !== false)
+crud.use('/:model', (req, res, next) => { const permission = `${req.params.model}s`; if (req.user?.role === 'admin' || req.user?.permisos?.[permission] === true)
     return next(); return res.status(403).json({ message: 'No tienes permiso para acceder a este módulo' }); });
 crud.get('/:model', asyncHandler(async (req, res) => { const model = req.params.model; const { q, page = '1', limit = '50', ...filters } = req.query; const where = {}; for (const [k, v] of Object.entries(filters))
     if (v)

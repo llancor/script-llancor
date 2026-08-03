@@ -307,6 +307,20 @@ model Configuracion {
   telegram_enabled Boolean @default(false)
   telegram_bot_token String?
   telegram_chat_id String?
+  theme String @default("esmeralda")
+  brand_name String @default("GuardiaPro")
+  brand_subtitle String @default("Centro de operaciones")
+  hero_title String @default("Seguridad conectada, decisiones claras.")
+  hero_description String @default("Coordina guardias, rondas GPS, accesos y alertas desde una sola plataforma.") @db.Text
+  hero_footer String @default("Protección visible. Gestión inteligente.")
+  logo_url String? @db.MediumText
+  icon_url String? @db.MediumText
+  hero_image_url String? @db.MediumText
+  public_page_enabled Boolean @default(false)
+  company_title String @default("Seguridad que inspira confianza")
+  company_description String? @db.Text
+  company_services String? @db.Text
+  quote_email String?
   updated_at DateTime @updatedAt
   @@map("configuracion")
 }

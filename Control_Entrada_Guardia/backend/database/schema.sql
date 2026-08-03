@@ -106,6 +106,14 @@ CREATE TABLE configuracion (
   smtp_secure BOOLEAN NOT NULL DEFAULT FALSE, smtp_user VARCHAR(190) NULL, smtp_password VARCHAR(255) NULL,
   mail_from VARCHAR(255) NULL, telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   telegram_bot_token VARCHAR(255) NULL, telegram_chat_id VARCHAR(100) NULL,
+  theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro',
+  brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
+  hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.', hero_description TEXT,
+  hero_footer VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.',
+  logo_url MEDIUMTEXT NULL, icon_url MEDIUMTEXT NULL, hero_image_url MEDIUMTEXT NULL,
+  public_page_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  company_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad que inspira confianza', company_description TEXT NULL,
+  company_services TEXT NULL, quote_email VARCHAR(190) NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT chk_config_singleton CHECK (id = 1)
 ) ENGINE=InnoDB;

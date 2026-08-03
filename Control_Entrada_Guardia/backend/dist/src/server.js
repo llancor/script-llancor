@@ -9,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import authRoutes from './auth.js';
 import { crud } from './crud.js';
-import { auth, admin, asyncHandler } from './middleware.js';
+import { auth, admin, permit, asyncHandler } from './middleware.js';
 import { db, publicUser, sendEmail, sendTelegram } from './lib.js';
 const app = express();
 const server = createServer(app);
@@ -17,11 +17,18 @@ const io = new Server(server, { cors: { origin: process.env.FRONTEND_URL } });
 app.set('io', io);
 app.use(helmet());
 app.use(cors({ origin: process.env.FRONTEND_URL }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
 app.use('/api/auth', rateLimit({ windowMs: 60_000, limit: 30 }), authRoutes);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/public/branding', asyncHandler(async (req, res) => { const c = await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }); res.json({ theme: c.theme, brand_name: c.brand_name, brand_subtitle: c.brand_subtitle, hero_title: c.hero_title, hero_description: c.hero_description, hero_footer: c.hero_footer, logo_url: c.logo_url, icon_url: c.icon_url, hero_image_url: c.hero_image_url, public_page_enabled: c.public_page_enabled, company_title: c.company_title, company_description: c.company_description, company_services: c.company_services }); }));
+app.post('/api/public/quote', rateLimit({ windowMs: 60_000, limit: 5 }), asyncHandler(async (req, res) => { const { nombre, email, telefono, empresa, mensaje } = req.body; if (!nombre || !email || !mensaje)
+    return res.status(400).json({ message: 'Nombre, email y mensaje son obligatorios' }); const c = await db.configuracion.findUnique({ where: { id: 1 } }); if (!c?.public_page_enabled)
+    return res.status(404).json({ message: 'Página no disponible' }); const destination = c.quote_email || c.smtp_user || process.env.SMTP_USER; if (!destination)
+    return res.status(503).json({ message: 'No hay un correo de cotizaciones configurado' }); await sendEmail(destination, `Solicitud de cotización: ${empresa || nombre}`, `Nombre: ${nombre}\nEmail: ${email}\nTeléfono: ${telefono || 'No indicado'}\nEmpresa: ${empresa || 'No indicada'}\n\n${mensaje}`); res.json({ message: 'Solicitud enviada. Nos pondremos en contacto contigo.' }); }));
 app.get('/api/dashboard', auth, asyncHandler(async (req, res) => { const start = new Date(); start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); const [guardias, turnos, alertas, entradas, reportes, rondas, alertasLista, turnosLista] = await Promise.all([db.guardia.count({ where: { estado: 'Activo' } }), db.turno.count({ where: { fecha: { gte: start, lt: end } } }), db.alerta.count({ where: { estado: 'Activa' } }), db.entrada.count({ where: { estado: 'Dentro' } }), db.reporte.count({ where: { estado: 'Abierto' } }), db.ronda.findMany({ take: 5, orderBy: { fecha_hora_inicio: 'desc' } }), db.alerta.findMany({ where: { estado: 'Activa' }, take: 5, orderBy: { fecha: 'desc' } }), db.turno.findMany({ where: { fecha: { gte: start, lt: end } }, take: 5, orderBy: { hora_inicio: 'asc' } })]); res.json({ stats: { guardias, turnos, alertas, entradas, reportes, rondas: rondas.length }, rondas, alertasLista, turnosLista }); }));
+app.get('/api/lookups/recintos', auth, asyncHandler(async (req, res) => res.json(await db.recinto.findMany({ where: { estado: 'Activo' }, select: { id: true, nombre: true, direccion: true }, orderBy: { nombre: 'asc' } }))));
+app.get('/api/lookups/guardias', auth, asyncHandler(async (req, res) => res.json(await db.guardia.findMany({ where: { estado: 'Activo' }, select: { id: true, nombre: true, documento: true, recinto_id: true, recinto_nombre: true }, orderBy: { nombre: 'asc' } }))));
 app.get('/api/users', auth, admin, asyncHandler(async (req, res) => res.json((await db.user.findMany({ orderBy: { created_at: 'desc' } })).map(publicUser))));
 app.post('/api/users/invite', auth, admin, asyncHandler(async (req, res) => { const { password, send_invitation, ...data } = req.body; if (!password || password.length < 8)
     return res.status(400).json({ message: 'La contraseña debe tener al menos 8 caracteres' }); const user = await db.user.create({ data: { ...data, password: await bcrypt.hash(password, 12), email_verified: true, enabled: data.enabled ?? true } }); if (send_invitation)
@@ -32,8 +39,8 @@ app.put('/api/users/:id/password', auth, admin, asyncHandler(async (req, res) =>
 app.delete('/api/users/:id', auth, admin, asyncHandler(async (req, res) => { if (req.params.id === req.user.id)
     return res.status(400).json({ message: 'No puedes eliminar tu usuario desde administración' }); await db.user.delete({ where: { id: req.params.id } }); res.status(204).end(); }));
 const safeConfig = (c) => ({ ...c, smtp_password: undefined, telegram_bot_token: undefined, smtp_password_configured: !!c.smtp_password, telegram_token_configured: !!c.telegram_bot_token });
-app.get('/api/config', auth, asyncHandler(async (req, res) => res.json(safeConfig(await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })))));
-app.put('/api/config', auth, admin, asyncHandler(async (req, res) => { const allowed = ['permitir_registro_publico', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'mail_from', 'telegram_enabled', 'telegram_bot_token', 'telegram_chat_id']; const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key))); if (!data.smtp_password)
+app.get('/api/config', auth, permit('configuracion'), asyncHandler(async (req, res) => res.json(safeConfig(await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })))));
+app.put('/api/config', auth, admin, asyncHandler(async (req, res) => { const allowed = ['permitir_registro_publico', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'mail_from', 'telegram_enabled', 'telegram_bot_token', 'telegram_chat_id', 'theme', 'brand_name', 'brand_subtitle', 'hero_title', 'hero_description', 'hero_footer', 'logo_url', 'icon_url', 'hero_image_url', 'public_page_enabled', 'company_title', 'company_description', 'company_services', 'quote_email']; const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key))); if (!data.smtp_password)
     delete data.smtp_password; if (!data.telegram_bot_token)
     delete data.telegram_bot_token; const config = await db.configuracion.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } }); res.json(safeConfig(config)); }));
 app.post('/api/config/test-email', auth, admin, asyncHandler(async (req, res) => { if (!req.body.email)
@@ -49,8 +56,24 @@ app.delete('/api/profile', auth, asyncHandler(async (req, res) => { await db.use
 app.use('/api', auth, crud);
 app.use((err, req, res, next) => { console.error(err); res.status(err.name === 'ZodError' ? 400 : 500).json({ message: err.issues?.[0]?.message || err.message || 'Error interno' }); });
 async function migrateCompatibility() {
-    await db.$executeRawUnsafe('ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified');
-    await db.$executeRawUnsafe("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_host VARCHAR(190) NULL, ADD COLUMN IF NOT EXISTS smtp_port SMALLINT UNSIGNED NOT NULL DEFAULT 587, ADD COLUMN IF NOT EXISTS smtp_secure BOOLEAN NOT NULL DEFAULT FALSE, ADD COLUMN IF NOT EXISTS smtp_user VARCHAR(190) NULL, ADD COLUMN IF NOT EXISTS smtp_password VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS mail_from VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE, ADD COLUMN IF NOT EXISTS telegram_bot_token VARCHAR(255) NULL, ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100) NULL");
+    const existing = async (table) => new Set((await db.$queryRawUnsafe(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'`)).map(column => column.COLUMN_NAME));
+    const userColumns = await existing('users');
+    if (!userColumns.has('enabled'))
+        await db.$executeRawUnsafe('ALTER TABLE users ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified');
+    const configColumns = await existing('configuracion');
+    const configDefinitions = {
+        smtp_host: 'VARCHAR(190) NULL', smtp_port: 'SMALLINT UNSIGNED NOT NULL DEFAULT 587', smtp_secure: 'BOOLEAN NOT NULL DEFAULT FALSE',
+        smtp_user: 'VARCHAR(190) NULL', smtp_password: 'VARCHAR(255) NULL', mail_from: 'VARCHAR(255) NULL',
+        telegram_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', telegram_bot_token: 'VARCHAR(255) NULL', telegram_chat_id: 'VARCHAR(100) NULL',
+        theme: "VARCHAR(30) NOT NULL DEFAULT 'esmeralda'", brand_name: "VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro'", brand_subtitle: "VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones'",
+        hero_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.'", hero_description: 'TEXT NULL', hero_footer: "VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.'",
+        logo_url: 'MEDIUMTEXT NULL', icon_url: 'MEDIUMTEXT NULL', hero_image_url: 'MEDIUMTEXT NULL', public_page_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE',
+        company_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad que inspira confianza'", company_description: 'TEXT NULL', company_services: 'TEXT NULL', quote_email: 'VARCHAR(190) NULL'
+    };
+    for (const [column, definition] of Object.entries(configDefinitions)) {
+        if (!configColumns.has(column))
+            await db.$executeRawUnsafe(`ALTER TABLE configuracion ADD COLUMN ${column} ${definition}`);
+    }
     const columns = await db.$queryRawUnsafe("SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turnos' AND COLUMN_NAME IN ('hora_inicio','hora_fin')");
     if (columns.some(column => column.DATA_TYPE.toLowerCase() === 'time')) {
         console.log('Migrando horarios de turnos de TIME a VARCHAR(8)...');

@@ -12,4 +12,5 @@ export function auth(req, res, next) {
     }
 }
 export const admin = (req, res, next) => req.user?.role === 'admin' ? next() : res.status(403).json({ message: 'Acceso solo para administradores' });
+export const permit = (module) => (req, res, next) => req.user?.role === 'admin' || req.user?.permisos?.[module] === true ? next() : res.status(403).json({ message: `No tienes permiso para acceder a ${module}` });
 export const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
