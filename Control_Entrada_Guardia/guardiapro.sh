@@ -124,7 +124,7 @@ install_app(){
 }
 
 services(){
-  while true; do title; printf "${B}Estado y control del servicio${N}\n\n1) Ver estado\n2) Iniciar\n3) Detener\n4) Reiniciar\n5) Ver registros\n6) Volver\n\n"; read -rp 'Opción: ' o
+  while true; do title; printf "${C}${B}Estado y control del servicio${N}\n\n${C}1)${N} Ver estado\n${G}2) Iniciar${N}\n${Y}3) Detener${N}\n${C}4) Reiniciar${N}\n${Y}5) Ver registros${N}\n${C}6)${N} Volver\n\n"; read -rp 'Opción: ' o
     case "$o" in 1) dc ps; pause;; 2) dc up -d; pause;; 3) dc stop; pause;; 4) dc restart; pause;; 5) dc logs --tail=150; pause;; 6) return;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
   done
 }
@@ -137,7 +137,7 @@ port(){
 }
 
 users(){
-  while true; do title; printf "${B}Gestión de usuarios${N}\n\n1) Listar usuarios\n2) Restablecer contraseña\n3) Volver\n\n"; read -rp 'Opción: ' o
+  while true; do title; printf "${C}${B}Gestión de usuarios${N}\n\n${C}1)${N} Listar usuarios\n${Y}2)${N} Restablecer contraseña\n${C}3)${N} Volver\n\n"; read -rp 'Opción: ' o
     case "$o" in
       1) dc exec -T backend node dist/src/admin-cli.js list-users; pause;;
       2)
@@ -149,7 +149,7 @@ users(){
 }
 
 uninstall_app(){
-  title; printf "${Y}${B}Desinstalar GuardiaPro${N}\n\n1) Quitar contenedores conservando datos\n2) Quitar contenedores y ELIMINAR base de datos\n3) Cancelar\n\n"; read -rp 'Opción: ' o
+  title; printf "${R}${B}Desinstalar GuardiaPro${N}\n\n${Y}1)${N} Quitar contenedores conservando datos\n${R}${B}2) Quitar contenedores y ELIMINAR base de datos${N}\n${G}3) Cancelar${N}\n\n"; read -rp 'Opción: ' o
   case "$o" in
     1) dc down --remove-orphans; printf "${G}Aplicación retirada; datos conservados.${N}\n";;
     2) local x; read -rp 'Escribe ELIMINAR para borrar todos los datos: ' x; if [[ "$x" == ELIMINAR ]]; then dc down -v --remove-orphans; printf "${R}Aplicación y base de datos eliminadas.${N}\n"; else printf 'Cancelado.\n'; fi;;
@@ -158,6 +158,18 @@ uninstall_app(){
 }
 
 while true; do
-  title; printf '1) Instalar dependencias\n2) Instalar Control de Seguridad\n3) Estado y control del servicio\n4) Cambiar puerto de Docker\n5) Ver URL y puerto\n6) Gestión de usuarios\n7) Desinstalar\n0) Salir\n\n'; read -rp 'Selecciona una opción: ' o
+  title
+  printf "${Y}${B} INSTALACIÓN${N}\n"
+  printf "  ${G}1)${N} Instalar dependencias\n"
+  printf "  ${G}2)${N} Instalar Control de Seguridad\n\n"
+  printf "${C}${B} ADMINISTRACIÓN${N}\n"
+  printf "  ${C}3)${N} Estado y control del servicio\n"
+  printf "  ${C}4)${N} Cambiar puerto de Docker\n"
+  printf "  ${C}5)${N} Ver URL y puerto\n"
+  printf "  ${Y}6)${N} Gestión de usuarios\n\n"
+  printf "${R}${B} MANTENIMIENTO${N}\n"
+  printf "  ${R}7) Desinstalar${N}\n"
+  printf "  ${C}0)${N} Salir\n\n"
+  read -rp 'Selecciona una opción: ' o
   case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done
