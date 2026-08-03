@@ -29,6 +29,15 @@ La aplicación queda publicada en el puerto indicado por `HTTP_PORT` (80 por def
 
 Para producción con dominio, sitúa un proxy TLS (Caddy, Traefik o Nginx) delante del puerto HTTP y define `APP_URL=https://tu-dominio`.
 
+### Menú de administración para Debian
+
+```bash
+chmod +x guardiapro.sh
+./guardiapro.sh
+```
+
+Permite instalar Docker, desplegar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos.
+
 ## Estructura
 
 ```text
