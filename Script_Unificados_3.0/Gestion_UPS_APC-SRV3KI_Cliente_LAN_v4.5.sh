@@ -966,7 +966,7 @@ La configuración de Telegram es correcta.
 
 Servidor: $(hostname)
 
-Fecha: $(date)
+Fecha: $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 Estado: ONLINE"
 
@@ -1391,7 +1391,7 @@ Configuracion SMTP realizada correctamente.
 
 Servidor: $(hostname)
 
-Fecha: $(date)
+Fecha: $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 Si recibio este correo, el envio funciona correctamente.
 
@@ -1748,7 +1748,7 @@ Correo de prueba enviado correctamente.
 
 Servidor : $(hostname)
 
-Fecha    : $(date)
+Fecha    : $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 
 Si recibió este mensaje, la configuración SMTP es correcta.
@@ -3526,7 +3526,7 @@ servicio_apagado_ups() {
 
 Servidor : $(hostname)
 
-Fecha : $(date)
+Fecha : $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 UPS : $UPS_OBJETIVO
 
@@ -3589,7 +3589,7 @@ Autonomía: ${AUTONOMIA}s"
 
 Servidor : $(hostname)
 
-Fecha : $(date)
+Fecha : $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 UPS : $UPS_OBJETIVO
 
