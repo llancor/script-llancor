@@ -3919,7 +3919,7 @@ Servidor : $(hostname)
 Fecha    : $(date "+%d/%m/%Y %H:%M:%S %Z")
 
 
-Si recibió este mensaje, la configuración SMTP es correcta.
+Si recibio este mensaje, la configuracion SMTP es correcta.
 
 "
 
