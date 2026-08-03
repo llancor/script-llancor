@@ -21,6 +21,7 @@ app.post('/api/config/test-email',auth,admin,asyncHandler(async(req,res)=>{if(!r
 app.post('/api/config/test-telegram',auth,admin,asyncHandler(async(req,res)=>{await sendTelegram('<b>GuardiaPro</b>\nLa configuración de Telegram funciona correctamente.');res.json({message:'Mensaje de prueba enviado'});}));
 app.put('/api/profile',auth,asyncHandler(async(req,res)=>{const {password,current_password,...data}=req.body;if(password){const me=await db.user.findUniqueOrThrow({where:{id:req.user!.id}});if(!me.password||!await bcrypt.compare(current_password,me.password))return res.status(400).json({message:'Contraseña actual incorrecta'});data.password=await bcrypt.hash(password,12);}res.json(publicUser(await db.user.update({where:{id:req.user!.id},data})));}));app.delete('/api/profile',auth,asyncHandler(async(req,res)=>{await db.user.delete({where:{id:req.user!.id}});res.status(204).end();}));
 app.use('/api',auth,crud);
+app.use('/api',(req,res)=>res.status(404).json({message:`Ruta API no encontrada: ${req.method} ${req.originalUrl}`}));
 app.use((err:any,req:any,res:any,next:any)=>{console.error(err);res.status(err.name==='ZodError'?400:500).json({message:err.issues?.[0]?.message||err.message||'Error interno'});});
 async function migrateCompatibility(){
   const existing=async(table:string)=>new Set((await db.$queryRawUnsafe<Array<{COLUMN_NAME:string}>>(
@@ -40,6 +41,12 @@ async function migrateCompatibility(){
   };
   for(const [column,definition] of Object.entries(configDefinitions)){
     if(!configColumns.has(column))await db.$executeRawUnsafe(`ALTER TABLE configuracion ADD COLUMN ${column} ${definition}`);
+  }
+  const guardiaPhoto=await db.$queryRawUnsafe<Array<{DATA_TYPE:string}>>(
+    "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'guardias' AND COLUMN_NAME = 'foto_url'"
+  );
+  if(guardiaPhoto[0]&&guardiaPhoto[0].DATA_TYPE.toLowerCase()!=='mediumtext'){
+    await db.$executeRawUnsafe('ALTER TABLE guardias MODIFY COLUMN foto_url MEDIUMTEXT NULL');
   }
   const columns=await db.$queryRawUnsafe<Array<{COLUMN_NAME:string;DATA_TYPE:string}>>(
     "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turnos' AND COLUMN_NAME IN ('hora_inicio','hora_fin')"

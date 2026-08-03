@@ -123,7 +123,7 @@ model Guardia {
   rango Rango @default(guardia)
   estado EstadoPersonal @default(Activo)
   fecha_ingreso DateTime?
-  foto_url String?
+  foto_url String? @db.MediumText
   recinto_id String?
   recinto_nombre String?
   created_by_id String?

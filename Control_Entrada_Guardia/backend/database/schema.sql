@@ -34,7 +34,7 @@ CREATE TABLE guardias (
   telefono VARCHAR(30), email VARCHAR(190),
   rango ENUM('supervisor','guardia_senior','guardia','cabo','conserje','nochero') NOT NULL DEFAULT 'guardia',
   estado ENUM('Activo','Inactivo','Licencia','Suspendido') NOT NULL DEFAULT 'Activo',
-  fecha_ingreso DATE, foto_url VARCHAR(500), recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150), created_by_id VARCHAR(30) NULL,
+  fecha_ingreso DATE, foto_url MEDIUMTEXT NULL, recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150), created_by_id VARCHAR(30) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_guardias_documento (documento), KEY idx_guardias_recinto (recinto_id), KEY idx_guardias_estado (estado), KEY idx_guardias_created_by (created_by_id),
   CONSTRAINT fk_guardias_recinto FOREIGN KEY (recinto_id) REFERENCES recintos(id) ON DELETE SET NULL,
