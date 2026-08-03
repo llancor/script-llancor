@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
-APP_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
+INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$HOME/guardiapro}"
+PROJECT_SUBDIR="Control_Entrada_Guardia"
+APP_DIR="$SCRIPT_DIR"
+
+# Si el instalador está separado del proyecto, reutiliza una descarga anterior.
+if [[ ! -f "$APP_DIR/docker-compose.yml" && -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
+fi
 cd "$APP_DIR"
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; N='\033[0m'
 
@@ -13,6 +22,36 @@ dc(){
   if ! docker info >/dev/null 2>&1; then printf "${R}Docker no está accesible. Usa sudo o vuelve a iniciar sesión tras agregarte al grupo docker.${N}\n"; return 1; fi
   docker compose "$@"
 }
+
+project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
+
+download_project(){
+  if project_ready; then return 0; fi
+  title
+  printf "${B}Descargando Control de Seguridad desde GitHub...${N}\n\n"
+  if ! has git; then
+    root apt-get update || return 1
+    root apt-get install -y git ca-certificates || return 1
+  fi
+  if [[ -d "$INSTALL_ROOT/.git" ]]; then
+    printf 'Actualizando instalación existente...\n'
+    git -C "$INSTALL_ROOT" pull --ff-only || return 1
+  elif [[ -e "$INSTALL_ROOT" ]]; then
+    printf "${R}La ruta $INSTALL_ROOT ya existe pero no es un repositorio Git.${N}\n"
+    printf 'Elimínala, muévela o define otra ruta con GUARDIAPRO_INSTALL_DIR.\n'
+    return 1
+  else
+    mkdir -p "$(dirname "$INSTALL_ROOT")" || return 1
+    git clone --depth 1 --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
+  fi
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
+  if [[ ! -f "$APP_DIR/docker-compose.yml" ]]; then
+    printf "${R}No se encontró $PROJECT_SUBDIR/docker-compose.yml en el repositorio.${N}\n"
+    return 1
+  fi
+  cd "$APP_DIR" || return 1
+  printf "${G}Proyecto descargado en $APP_DIR.${N}\n"
+}
 setenv(){
   local k="$1" v="$2"; touch .env
   if grep -q "^${k}=" .env; then sed -i "s|^${k}=.*|${k}=${v}|" .env; else printf '%s=%s\n' "$k" "$v" >>.env; fi
@@ -20,11 +59,30 @@ setenv(){
 getenv(){ local v; v="$(grep -E "^$1=" .env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"; printf '%s' "${v:-$2}"; }
 prepare_env(){
   if [[ ! -f .env ]]; then
-    cp .env.docker.example .env
+    if [[ -f .env.docker.example ]]; then
+      cp .env.docker.example .env
+    else
+      printf '%s\n' \
+        'MYSQL_PASSWORD=' \
+        'MYSQL_ROOT_PASSWORD=' \
+        'JWT_SECRET=' \
+        'APP_URL=' \
+        'HTTP_PORT=80' \
+        'GOOGLE_CLIENT_ID=' \
+        'SMTP_HOST=' \
+        'SMTP_PORT=587' \
+        'SMTP_USER=' \
+        'SMTP_PASS=' \
+        'MAIL_FROM=GuardiaPro <no-reply@guardiapro.local>' > .env
+      printf "${Y}No se encontró .env.docker.example; se creó una configuración nueva.${N}\n"
+    fi
     setenv MYSQL_PASSWORD "$(openssl rand -hex 24)"
     setenv MYSQL_ROOT_PASSWORD "$(openssl rand -hex 24)"
     setenv JWT_SECRET "$(openssl rand -hex 48)"
     setenv HTTP_PORT 80
+    local server_ip
+    server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    [[ -n "$server_ip" ]] && setenv APP_URL "http://${server_ip}"
   fi
 }
 
@@ -55,7 +113,10 @@ show_url(){
 }
 
 install_app(){
-  title; if ! has docker; then printf "${R}Primero usa la opción Instalar dependencias.${N}\n"; return; fi
+  title
+  if ! has docker; then printf "${R}Primero usa la opción Instalar dependencias.${N}\n"; return; fi
+  download_project || return
+  title
   prepare_env; local url; printf "URL actual: ${C}%s${N}\n" "$(getenv APP_URL '')"; read -rp 'URL pública (Enter para conservar): ' url
   [[ -n "$url" ]] && setenv APP_URL "$url"
   printf "\n${B}Construyendo y arrancando GuardiaPro...${N}\n"
@@ -100,4 +161,3 @@ while true; do
   title; printf '1) Instalar dependencias\n2) Instalar Control de Seguridad\n3) Estado y control del servicio\n4) Cambiar puerto de Docker\n5) Ver URL y puerto\n6) Gestión de usuarios\n7) Desinstalar\n0) Salir\n\n'; read -rp 'Selecciona una opción: ' o
   case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done
-

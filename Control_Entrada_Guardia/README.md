@@ -38,6 +38,8 @@ chmod +x guardiapro.sh
 
 Permite instalar Docker, desplegar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos.
 
+El archivo también funciona de manera autónoma: si se copia solo `guardiapro.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `~/guardiapro` y utiliza la carpeta `Control_Entrada_Guardia`. La ubicación puede cambiarse ejecutando `GUARDIAPRO_INSTALL_DIR=/opt/guardiapro ./guardiapro.sh`.
+
 ## Estructura
 
 ```text
