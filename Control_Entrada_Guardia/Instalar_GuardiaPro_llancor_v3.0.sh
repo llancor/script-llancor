@@ -223,12 +223,48 @@ uninstall_app(){
             cd / || return
             root rm -rf -- "$target"
             printf "${R}GuardiaPro, sus imagenes, base de datos y archivos fueron eliminados.${N}\n"
-            exit 0
+            APP_DIR="$SCRIPT_DIR"
+            return
             ;;
           *) printf "${R}Ruta no permitida para borrado automatico: $target${N}\n";;
         esac
       else printf 'Cancelado.\n'; fi;;
     *) printf 'Cancelado.\n';;
+  esac
+}
+
+repair_database(){
+  title
+  printf "${C}${B}Reparar base de datos${N}\n\n"
+  printf "${Y}Esta operacion elimina y vuelve a crear la base de datos de esta instancia.${N}\n"
+  printf "Se perderan usuarios, guardias, recintos, turnos, rondas y configuraciones actuales.\n\n"
+  local confirmation
+  read -rp 'Escribe REPARAR BASE para continuar: ' confirmation
+  [[ "$confirmation" == 'REPARAR BASE' ]] || { printf 'Operacion cancelada.\n'; return; }
+  project_ready || { printf "${R}No se encontro una instalacion valida en $APP_DIR.${N}\n"; return; }
+  prepare_env
+  dc down -v --remove-orphans || return
+  if dc up -d --build; then printf "${G}Base de datos reparada e instancia iniciada.${N}\n"; dc ps; show_url; else printf "${R}La reparacion fallo. Revisa los registros del backend.${N}\n"; fi
+}
+
+uninstall_app(){
+  title
+  printf "${C}${B}Desinstalacion completa de GuardiaPro${N}\n\n"
+  printf "${R}Se eliminaran contenedores, imagenes, red, volumen MySQL y todos los archivos de esta instancia.${N}\n\n"
+  local confirmation target
+  read -rp 'Escribe ELIMINAR TODO para continuar: ' confirmation
+  [[ "$confirmation" == 'ELIMINAR TODO' ]] || { printf 'Operacion cancelada.\n'; return; }
+  target="$(realpath -m "$INSTALL_ROOT")"
+  case "$target" in
+    /opt/*|/root/*|/home/*/*)
+      [[ -f "$target/$PROJECT_SUBDIR/docker-compose.yml" ]] || { printf "${R}No se encontro una instalacion valida en $target.${N}\n"; return; }
+      dc down -v --rmi local --remove-orphans || return
+      cd / || return
+      root rm -rf -- "$target"
+      printf "${R}La instancia completa fue eliminada permanentemente.${N}\n"
+      APP_DIR="$SCRIPT_DIR"
+      return;;
+    *) printf "${R}Ruta no permitida para borrado automatico: $target${N}\n";;
   esac
 }
 
@@ -243,8 +279,10 @@ while true; do
   printf "  ${Y}5)${C} Ver URL y puerto${N}\n"
   printf "  ${Y}6)${C} Gestión de usuarios${N}\n\n"
   printf "${C}${B} MANTENIMIENTO${N}\n"
-  printf "  ${Y}7)${C} Desinstalar${N}\n"
+  printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
+  printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o
+  if [[ "$o" == 8 ]]; then repair_database; pause; continue; fi
   case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done

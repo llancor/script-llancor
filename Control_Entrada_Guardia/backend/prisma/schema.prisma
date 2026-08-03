@@ -317,6 +317,13 @@ model Configuracion {
   icon_url String? @db.MediumText
   hero_image_url String? @db.MediumText
   public_page_enabled Boolean @default(false)
+  public_banner_color String @default("#e2e8f0")
+  company_contact_enabled Boolean @default(false)
+  company_contact_name String?
+  company_email String?
+  company_phone String?
+  company_address String?
+  company_website_url String?
   company_title String @default("Seguridad que inspira confianza")
   company_description String? @db.Text
   company_services String? @db.Text
