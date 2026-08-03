@@ -4,7 +4,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY backend backend
 RUN pnpm --filter guardiapro-backend exec prisma generate && pnpm --filter guardiapro-backend build
 

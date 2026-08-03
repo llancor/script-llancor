@@ -26,7 +26,19 @@ dc(){
 project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
 
 download_project(){
-  if project_ready; then return 0; fi
+  if project_ready; then
+    local existing_root
+    existing_root="$(git -C "$APP_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$existing_root" ]]; then
+      printf "${B}Buscando actualizaciones en GitHub...${N}\n"
+      if ! git -C "$existing_root" pull --ff-only; then
+        printf "${R}No fue posible actualizar el proyecto. Revisa la conexion o los cambios locales.${N}\n"
+        return 1
+      fi
+      printf "${G}Proyecto actualizado.${N}\n"
+    fi
+    return 0
+  fi
   title
   printf "${B}Descargando Control de Seguridad desde GitHub...${N}\n\n"
   if ! has git; then
