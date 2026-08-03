@@ -42,6 +42,17 @@ El archivo también funciona de manera autónoma: si se copia solo `Instalar_Gua
 
 Cuando el repositorio ya existe, el instalador ejecuta `git pull --ff-only` antes de construir para utilizar siempre el código y los Dockerfiles más recientes.
 
+### Instalador para Windows
+
+Abre PowerShell y ejecuta:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\Instalar_GuardiaPro_Windows_v1.0.ps1
+```
+
+El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.
+
 ## Estructura
 
 ```text
