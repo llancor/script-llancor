@@ -268,6 +268,15 @@ uninstall_app(){
   esac
 }
 
+show_default_credentials(){
+  title
+  printf "${C}${B}Credenciales iniciales de GuardiaPro${N}\n\n"
+  printf "${B}Usuario:${N} ${C}admin@guardiapro.cl${N}\n"
+  printf "${B}Contraseña inicial:${N} ${Y}GuardiaPro2026!${N}\n\n"
+  printf "${Y}Estas credenciales solo funcionan en una base de datos nueva.${N}\n"
+  printf "Si la contraseña fue cambiada, usa Gestión de usuarios para restablecerla.\n"
+}
+
 while true; do
   title
   printf "${C}${B} INSTALACIÓN${N}\n"
@@ -277,12 +286,14 @@ while true; do
   printf "  ${Y}3)${C} Estado y control del servicio${N}\n"
   printf "  ${Y}4)${C} Cambiar puerto de Docker${N}\n"
   printf "  ${Y}5)${C} Ver URL y puerto${N}\n"
-  printf "  ${Y}6)${C} Gestión de usuarios${N}\n\n"
+  printf "  ${Y}6)${C} Gestión de usuarios${N}\n"
+  printf "  ${Y}9)${C} Ver credenciales iniciales${N}\n\n"
   printf "${C}${B} MANTENIMIENTO${N}\n"
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o
   if [[ "$o" == 8 ]]; then repair_database; pause; continue; fi
+  if [[ "$o" == 9 ]]; then show_default_credentials; pause; continue; fi
   case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done
