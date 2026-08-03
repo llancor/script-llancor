@@ -1,6 +1,7 @@
 {
   "name": "guardiapro",
   "private": true,
+  "packageManager": "pnpm@10.15.1",
   "workspaces": ["backend", "frontend"],
   "scripts": {
     "dev": "concurrently -n API,WEB -c green,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\"",
@@ -10,4 +11,3 @@
   },
   "devDependencies": { "concurrently": "^9.1.2" }
 }
-
