@@ -50,7 +50,7 @@ export default function CrudPage({moduleKey}:{moduleKey:string}){
     return{start,end:new Date(anchorDate.getFullYear(),anchorDate.getMonth()+1,1)};
   },[anchorDate,dateField,periodView]);
   const visibleItems=useMemo(()=>items.filter(item=>!range||((date=>!Number.isNaN(date.getTime())&&date>=range.start&&date<range.end)(new Date(item[dateField])))),[items,range,dateField]);
-  const periodLabel=periodView==='list'?`Todos los ${m.title.toLowerCase()}`:periodView==='day'?anchorDate.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'}):periodView==='week'?`${range!.start.toLocaleDateString('es-CL',{day:'numeric',month:'short'})} – ${addDays(range!.end,-1).toLocaleDateString('es-CL',{day:'numeric',month:'short',year:'numeric'})}`:anchorDate.toLocaleDateString('es-CL',{month:'long',year:'numeric'});
+  const periodLabel=!dateField?'':periodView==='list'?`Todos los ${m.title.toLowerCase()}`:periodView==='day'?anchorDate.toLocaleDateString('es-CL',{weekday:'long',day:'numeric',month:'long'}):periodView==='week'?`${range!.start.toLocaleDateString('es-CL',{day:'numeric',month:'short'})} – ${addDays(range!.end,-1).toLocaleDateString('es-CL',{day:'numeric',month:'short',year:'numeric'})}`:anchorDate.toLocaleDateString('es-CL',{month:'long',year:'numeric'});
   const movePeriod=(direction:number)=>setAnchorDate(current=>periodView==='day'?addDays(current,direction):periodView==='week'?addDays(current,direction*7):new Date(current.getFullYear(),current.getMonth()+direction,1));
   const monthStart=new Date(anchorDate.getFullYear(),anchorDate.getMonth(),1);
   const calendarStart=addDays(monthStart,-((monthStart.getDay()+6)%7));
