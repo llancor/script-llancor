@@ -2,10 +2,10 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
-DEFAULT_INSTALL_ROOT="/opt/guardiapro"
+DEFAULT_INSTALL_ROOT="/opt"
 DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
-PROJECT_SUBDIR="Control_Entrada_Guardia"
+PROJECT_SUBDIR="guardiapro"
 APP_DIR="$SCRIPT_DIR"
 
 # Si se ejecuta desde una copia instalada, administra esa instancia concreta.
@@ -133,7 +133,7 @@ prepare_env(){
     setenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")"
     local server_ip
     server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-    [[ -n "$server_ip" ]] && setenv APP_URL "http://${server_ip}"
+    [[ -n "$server_ip" ]] && setenv APP_URL "http://${server_ip}:$(getenv HTTP_PORT "$DEFAULT_HTTP_PORT")"
   fi
 }
 
@@ -204,31 +204,88 @@ users(){
   done
 }
 
+repair_database(){
+  title
+  printf "${C}${B}Reparar base de datos${N}\n\n"
+  printf "${Y}Esta operacion elimina y vuelve a crear la base de datos de esta instancia.${N}\n"
+  printf "Se perderan usuarios, guardias, recintos, turnos, rondas y configuraciones actuales.\n\n"
+  local confirmation
+  read -rp 'Escribe REPARAR BASE para continuar: ' confirmation
+  [[ "$confirmation" == 'REPARAR BASE' ]] || { printf 'Operacion cancelada.\n'; return; }
+  project_ready || { printf "${R}No se encontro una instalacion valida en $APP_DIR.${N}\n"; return; }
+  prepare_env
+  dc down -v --remove-orphans || return
+  if dc up -d --build; then printf "${G}Base de datos reparada e instancia iniciada.${N}\n"; dc ps; show_url; else printf "${R}La reparacion fallo. Revisa los registros del backend.${N}\n"; fi
+}
+
+show_initial_credentials(){
+  title
+  printf "${C}${B}Credenciales iniciales${N}\n\n"
+  printf "${B}Usuario:${N} admin@guardiapro.cl\n"
+  printf "${B}Contraseña:${N} GuardiaPro2026!\n\n"
+  printf "${Y}Por seguridad, cambia esta contraseña después del primer inicio de sesión.${N}\n"
+}
+
+update_app(){
+  title
+  printf "${C}${B}Actualizar GuardiaPro${N}\n\n"
+  if ! project_ready; then
+    if [[ -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
+      APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
+      cd "$APP_DIR" || return 1
+    else
+      printf "${R}No se encontró una instalación de GuardiaPro en $INSTALL_ROOT/$PROJECT_SUBDIR.${N}\n"
+      return 1
+    fi
+  fi
+  if ! has git; then
+    printf "${R}Git no está instalado. Ejecuta primero la opción 1.${N}\n"
+    return 1
+  fi
+  local repository_root
+  repository_root="$(git -C "$APP_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -z "$repository_root" ]]; then
+    printf "${R}La instalación no pertenece a un repositorio Git.${N}\n"
+    return 1
+  fi
+  printf "${B}Descargando cambios desde GitHub...${N}\n"
+  if ! git -C "$repository_root" pull --ff-only; then
+    printf "${R}No fue posible actualizar. Revisa la conexión o los cambios locales.${N}\n"
+    return 1
+  fi
+  APP_DIR="$repository_root/$PROJECT_SUBDIR"
+  cd "$APP_DIR" || return 1
+  project_ready || { printf "${R}La carpeta actualizada no contiene una instalación válida.${N}\n"; return 1; }
+  prepare_env
+  printf "\n${B}Reconstruyendo y reiniciando servicios sin borrar los datos...${N}\n"
+  if dc up -d --build --remove-orphans; then
+    printf "${G}GuardiaPro fue actualizado correctamente. La base de datos se conservó.${N}\n"
+    dc ps
+    show_url
+  else
+    printf "${R}La actualización falló. Revisa los registros desde la opción 3.${N}\n"
+    return 1
+  fi
+}
+
 uninstall_app(){
-  title; printf "${C}${B}Desinstalar GuardiaPro${N}\n\n${Y}1)${C} Detener y quitar contenedores conservando datos${N}\n${Y}2)${C} Desinstalacion completa: contenedores, imagenes, base de datos y archivos${N}\n${Y}3)${C} Cancelar${N}\n\n"; read -rp 'Opción: ' o
-  case "$o" in
-    1) dc down --remove-orphans; printf "${G}Aplicación retirada; datos conservados.${N}\n";;
-    2)
-      local x target
-      read -rp 'Escribe ELIMINAR TODO para borrar permanentemente GuardiaPro: ' x
-      if [[ "$x" == 'ELIMINAR TODO' ]]; then
-        dc down -v --rmi local --remove-orphans || return
-        target="$(realpath -m "$INSTALL_ROOT")"
-        case "$target" in
-          /opt/*|/root/*|/home/*/*)
-            if [[ ! -f "$target/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
-              printf "${R}No se encontro una instalacion GuardiaPro valida en $target.${N}\n"
-              return
-            fi
-            cd / || return
-            root rm -rf -- "$target"
-            printf "${R}GuardiaPro, sus imagenes, base de datos y archivos fueron eliminados.${N}\n"
-            exit 0
-            ;;
-          *) printf "${R}Ruta no permitida para borrado automatico: $target${N}\n";;
-        esac
-      else printf 'Cancelado.\n'; fi;;
-    *) printf 'Cancelado.\n';;
+  title
+  printf "${C}${B}Desinstalacion completa de GuardiaPro${N}\n\n"
+  printf "${R}Se eliminaran contenedores, imagenes, red, volumen MySQL y todos los archivos de esta instancia.${N}\n\n"
+  local confirmation target
+  read -rp 'Escribe ELIMINAR TODO para continuar: ' confirmation
+  [[ "$confirmation" == 'ELIMINAR TODO' ]] || { printf 'Operacion cancelada.\n'; return; }
+  target="$(realpath -m "$INSTALL_ROOT")"
+  case "$target" in
+    /opt/*|/root/*|/home/*/*)
+      [[ -f "$target/$PROJECT_SUBDIR/docker-compose.yml" ]] || { printf "${R}No se encontro una instalacion valida en $target.${N}\n"; return; }
+      dc down -v --rmi local --remove-orphans || return
+      cd / || return
+      root rm -rf -- "$target"
+      printf "${R}La instancia completa fue eliminada permanentemente.${N}\n"
+      APP_DIR="$SCRIPT_DIR"
+      return;;
+    *) printf "${R}Ruta no permitida para borrado automatico: $target${N}\n";;
   esac
 }
 
@@ -243,8 +300,12 @@ while true; do
   printf "  ${Y}5)${C} Ver URL y puerto${N}\n"
   printf "  ${Y}6)${C} Gestión de usuarios${N}\n\n"
   printf "${C}${B} MANTENIMIENTO${N}\n"
-  printf "  ${Y}7)${C} Desinstalar${N}\n"
+  printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
+  printf "  ${Y}8)${C} Reparar base de datos${N}\n"
+  printf "  ${Y}9)${C} Ver credenciales iniciales${N}\n"
+  printf "  ${Y}10)${C} Actualizar GuardiaPro${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o
-  case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
+  if [[ "$o" == 8 ]]; then repair_database; pause; continue; fi
+  case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 9) show_initial_credentials; pause;; 10) update_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done
