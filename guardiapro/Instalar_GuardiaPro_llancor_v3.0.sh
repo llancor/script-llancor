@@ -2,10 +2,10 @@
 set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
-DEFAULT_INSTALL_ROOT="/opt/guardiapro"
+DEFAULT_INSTALL_ROOT="/optguardiapro"
 DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
-PROJECT_SUBDIR="GuardiaPro-beta"
+PROJECT_SUBDIR="guardiapro"
 APP_DIR="$SCRIPT_DIR"
 
 # Si se ejecuta desde una copia instalada, administra esa instancia concreta.
