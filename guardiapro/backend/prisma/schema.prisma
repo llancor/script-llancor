@@ -33,7 +33,9 @@ enum EstadoRecinto {
 enum TipoTurno {
   Manana
   Tarde
+  Dia
   Noche
+  Personalizado
 }
 enum EstadoTurno {
   Programado
@@ -111,6 +113,7 @@ model User {
   entradas_creadas Entrada[] @relation("EntradaCreator")
   reportes_creados Reporte[] @relation("ReporteCreator")
   alertas_creadas Alerta[] @relation("AlertaCreator")
+  relevos_creados Relevo[] @relation("RelevoCreator")
   @@map("users")
 }
 
@@ -295,6 +298,28 @@ model Alerta {
   @@map("alertas")
 }
 
+model Relevo {
+  id String @id @default(cuid())
+  turno_id String?
+  guardia_saliente_id String?
+  guardia_saliente_nombre String
+  guardia_entrante_id String?
+  guardia_entrante_nombre String
+  recinto_id String?
+  recinto_nombre String?
+  fecha_hora DateTime @default(now())
+  novedades String @db.Text
+  estado_entrega String @default("Completa")
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("RelevoCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  @@index([fecha_hora])
+  @@index([guardia_saliente_id])
+  @@index([guardia_entrante_id])
+  @@map("relevos")
+}
+
 model Configuracion {
   id Int @id @default(1)
   permitir_registro_publico Boolean @default(false)
@@ -307,6 +332,19 @@ model Configuracion {
   telegram_enabled Boolean @default(false)
   telegram_bot_token String?
   telegram_chat_id String?
+  alert_email_enabled Boolean @default(false)
+  alert_telegram_enabled Boolean @default(true)
+  report_email_enabled Boolean @default(false)
+  report_telegram_enabled Boolean @default(false)
+  notification_email String?
+  shift_email_enabled Boolean @default(false)
+  timezone String @default("America/Santiago")
+  date_format String @default("DD/MM/YYYY")
+  time_format String @default("24h")
+  turno_dia_inicio String @default("08:00")
+  turno_dia_fin String @default("20:00")
+  turno_noche_inicio String @default("20:00")
+  turno_noche_fin String @default("08:00")
   theme String @default("esmeralda")
   brand_name String @default("GuardiaPro")
   brand_subtitle String @default("Centro de operaciones")

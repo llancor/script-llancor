@@ -1,5 +1,5 @@
 import{useEffect,useState}from'react';import{KeyRound,Pencil,Plus,Power,Trash2}from'lucide-react';import{api,useAuth}from'../state';import{Badge,Button,Dialog,PageHead}from'../components';
-const permissions=['guardias','turnos','rondas','recintos','entradas','reportes','alertas','usuarios','configuracion'];
+const permissions=['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','usuarios','configuracion'];
 const roles=[['admin','Administrador'],['jefe_turno','Jefe de turno'],['guardia','Guardia']];
 const rangos=[['supervisor','Supervisor'],['guardia_senior','Guardia senior'],['guardia','Guardia'],['cabo','Cabo'],['conserje','Conserje'],['nochero','Nochero']];
 const blank=()=>({full_name:'',email:'',password:'',role:'guardia',rango:'guardia',telefono:'',cargo:'',enabled:true,send_invitation:false,permisos:Object.fromEntries(permissions.map(p=>[p,p!=='usuarios'&&p!=='configuracion']))});

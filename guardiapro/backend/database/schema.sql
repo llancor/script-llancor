@@ -43,7 +43,7 @@ CREATE TABLE guardias (
 
 CREATE TABLE turnos (
   id VARCHAR(30) PRIMARY KEY, guardia_id VARCHAR(30) NULL, guardia_nombre VARCHAR(150) NOT NULL,
-  tipo_turno ENUM('Manana','Tarde','Noche') NOT NULL, fecha DATE NOT NULL, hora_inicio VARCHAR(8) NOT NULL, hora_fin VARCHAR(8) NOT NULL,
+  tipo_turno ENUM('Manana','Tarde','Dia','Noche','Personalizado') NOT NULL, fecha DATE NOT NULL, hora_inicio VARCHAR(8) NOT NULL, hora_fin VARCHAR(8) NOT NULL,
   ubicacion VARCHAR(255), observaciones TEXT, estado ENUM('Programado','En_curso','Completado','Cancelado') NOT NULL DEFAULT 'Programado',
   recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150), created_by_id VARCHAR(30) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -100,12 +100,31 @@ CREATE TABLE alertas (
   CONSTRAINT fk_alertas_creator FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
+CREATE TABLE relevos (
+  id VARCHAR(30) PRIMARY KEY, turno_id VARCHAR(30) NULL,
+  guardia_saliente_id VARCHAR(30) NULL, guardia_saliente_nombre VARCHAR(150) NOT NULL,
+  guardia_entrante_id VARCHAR(30) NULL, guardia_entrante_nombre VARCHAR(150) NOT NULL,
+  recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150) NULL,
+  fecha_hora DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, novedades TEXT NOT NULL,
+  estado_entrega VARCHAR(30) NOT NULL DEFAULT 'Completa', created_by_id VARCHAR(30) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_relevos_fecha (fecha_hora), KEY idx_relevos_saliente (guardia_saliente_id), KEY idx_relevos_entrante (guardia_entrante_id),
+  CONSTRAINT fk_relevos_creator FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE configuracion (
   id TINYINT UNSIGNED PRIMARY KEY DEFAULT 1, permitir_registro_publico BOOLEAN NOT NULL DEFAULT FALSE,
   smtp_host VARCHAR(190) NULL, smtp_port SMALLINT UNSIGNED NOT NULL DEFAULT 587,
   smtp_secure BOOLEAN NOT NULL DEFAULT FALSE, smtp_user VARCHAR(190) NULL, smtp_password VARCHAR(255) NULL,
   mail_from VARCHAR(255) NULL, telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   telegram_bot_token VARCHAR(255) NULL, telegram_chat_id VARCHAR(100) NULL,
+  alert_email_enabled BOOLEAN NOT NULL DEFAULT FALSE, alert_telegram_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  report_email_enabled BOOLEAN NOT NULL DEFAULT FALSE, report_telegram_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  notification_email VARCHAR(190) NULL,
+  shift_email_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  timezone VARCHAR(80) NOT NULL DEFAULT 'America/Santiago', date_format VARCHAR(20) NOT NULL DEFAULT 'DD/MM/YYYY', time_format VARCHAR(10) NOT NULL DEFAULT '24h',
+  turno_dia_inicio VARCHAR(8) NOT NULL DEFAULT '08:00', turno_dia_fin VARCHAR(8) NOT NULL DEFAULT '20:00',
+  turno_noche_inicio VARCHAR(8) NOT NULL DEFAULT '20:00', turno_noche_fin VARCHAR(8) NOT NULL DEFAULT '08:00',
   theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro',
   brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
   hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.', hero_description TEXT,
