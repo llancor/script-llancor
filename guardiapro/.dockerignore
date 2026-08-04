@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+.pnpm-store
+.git
+.gitignore
+.env
+*.log
+**/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
