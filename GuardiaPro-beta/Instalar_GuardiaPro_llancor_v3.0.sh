@@ -5,7 +5,7 @@ REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
 DEFAULT_INSTALL_ROOT="/opt/guardiapro"
 DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
-PROJECT_SUBDIR="GuardiaPro-beta"
+PROJECT_SUBDIR="Control_Entrada_Guardia"
 APP_DIR="$SCRIPT_DIR"
 
 # Si se ejecuta desde una copia instalada, administra esa instancia concreta.
@@ -218,6 +218,14 @@ repair_database(){
   if dc up -d --build; then printf "${G}Base de datos reparada e instancia iniciada.${N}\n"; dc ps; show_url; else printf "${R}La reparacion fallo. Revisa los registros del backend.${N}\n"; fi
 }
 
+show_initial_credentials(){
+  title
+  printf "${C}${B}Credenciales iniciales${N}\n\n"
+  printf "${B}Usuario:${N} admin@guardiapro.cl\n"
+  printf "${B}Contraseña:${N} GuardiaPro2026!\n\n"
+  printf "${Y}Por seguridad, cambia esta contraseña después del primer inicio de sesión.${N}\n"
+}
+
 uninstall_app(){
   title
   printf "${C}${B}Desinstalacion completa de GuardiaPro${N}\n\n"
@@ -252,8 +260,9 @@ while true; do
   printf "${C}${B} MANTENIMIENTO${N}\n"
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
+  printf "  ${Y}9)${C} Ver credenciales iniciales${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o
   if [[ "$o" == 8 ]]; then repair_database; pause; continue; fi
-  case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
+  case "$o" in 1) dependencies; pause;; 2) install_app; pause;; 3) services;; 4) port; pause;; 5) title; show_url; pause;; 6) users;; 7) uninstall_app; pause;; 9) show_initial_credentials; pause;; 0) exit 0;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
 done
