@@ -311,7 +311,7 @@ model Configuracion {
   brand_name String @default("GuardiaPro")
   brand_subtitle String @default("Centro de operaciones")
   hero_title String @default("Seguridad conectada, decisiones claras.")
-  hero_description String @default("Coordina guardias, rondas GPS, accesos y alertas desde una sola plataforma.") @db.Text
+  hero_description String? @db.Text
   hero_footer String @default("Protección visible. Gestión inteligente.")
   logo_url String? @db.MediumText
   icon_url String? @db.MediumText
