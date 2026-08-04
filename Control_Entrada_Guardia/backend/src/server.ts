@@ -2,8 +2,9 @@ import 'dotenv/config';
 import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import morgan from 'morgan';
 import { createServer } from 'http'; import { Server } from 'socket.io'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs';
 import authRoutes from './auth.js'; import { crud } from './crud.js'; import { auth,admin,permit,asyncHandler } from './middleware.js'; import { db,publicUser,sendEmail,sendTelegram } from './lib.js';
+import { databaseAdmin } from './database-admin.js';
 const app=express();const server=createServer(app);const io=new Server(server,{cors:{origin:process.env.FRONTEND_URL}});app.set('io',io);
-app.use(helmet());app.use(cors({origin:process.env.FRONTEND_URL}));app.use(express.json({limit:'10mb'}));app.use(morgan('dev'));app.use('/api/auth',rateLimit({windowMs:60_000,limit:30}),authRoutes);
+app.use(helmet());app.use(cors({origin:process.env.FRONTEND_URL}));app.use(express.json({limit:'50mb'}));app.use(morgan('dev'));app.use('/api/auth',rateLimit({windowMs:60_000,limit:30}),authRoutes);
 app.get('/api/health',(req,res)=>res.json({status:'ok'}));
 app.get('/api/public/branding',asyncHandler(async(req,res)=>{const c=await db.configuracion.upsert({where:{id:1},update:{},create:{id:1}});res.json({theme:c.theme,brand_name:c.brand_name,brand_subtitle:c.brand_subtitle,hero_title:c.hero_title,hero_description:c.hero_description,hero_footer:c.hero_footer,logo_url:c.logo_url,icon_url:c.icon_url,hero_image_url:c.hero_image_url,public_page_enabled:c.public_page_enabled,public_banner_color:c.public_banner_color,company_title:c.company_title,company_description:c.company_description,company_services:c.company_services,...(c.company_contact_enabled?{company_contact_enabled:true,company_contact_name:c.company_contact_name,company_email:c.company_email,company_phone:c.company_phone,company_address:c.company_address,company_website_url:c.company_website_url}:{company_contact_enabled:false})});}));
 app.post('/api/public/quote',rateLimit({windowMs:60_000,limit:5}),asyncHandler(async(req,res)=>{const {nombre,email,telefono,empresa,mensaje}=req.body;if(!nombre||!email||!mensaje)return res.status(400).json({message:'Nombre, email y mensaje son obligatorios'});const c=await db.configuracion.findUnique({where:{id:1}});if(!c?.public_page_enabled)return res.status(404).json({message:'Página no disponible'});const destination=c.quote_email||c.smtp_user||process.env.SMTP_USER;if(!destination)return res.status(503).json({message:'No hay un correo de cotizaciones configurado'});await sendEmail(destination,`Solicitud de cotización: ${empresa||nombre}`,`Nombre: ${nombre}\nEmail: ${email}\nTeléfono: ${telefono||'No indicado'}\nEmpresa: ${empresa||'No indicada'}\n\n${mensaje}`);res.json({message:'Solicitud enviada. Nos pondremos en contacto contigo.'});}));
@@ -19,6 +20,7 @@ const safeConfig=(c:any)=>({...c,smtp_password:undefined,telegram_bot_token:unde
 app.get('/api/config',auth,permit('configuracion'),asyncHandler(async(req,res)=>res.json(safeConfig(await db.configuracion.upsert({where:{id:1},update:{},create:{id:1}})))));app.put('/api/config',auth,admin,asyncHandler(async(req,res)=>{const allowed=['permitir_registro_publico','smtp_host','smtp_port','smtp_secure','smtp_user','smtp_password','mail_from','telegram_enabled','telegram_bot_token','telegram_chat_id','theme','brand_name','brand_subtitle','hero_title','hero_description','hero_footer','logo_url','icon_url','hero_image_url','public_page_enabled','public_banner_color','company_contact_enabled','company_contact_name','company_email','company_phone','company_address','company_website_url','company_title','company_description','company_services','quote_email'];const data:any=Object.fromEntries(Object.entries(req.body).filter(([key])=>allowed.includes(key)));if(!data.smtp_password)delete data.smtp_password;if(!data.telegram_bot_token)delete data.telegram_bot_token;const config=await db.configuracion.upsert({where:{id:1},update:data,create:{id:1,...data}});res.json(safeConfig(config));}));
 app.post('/api/config/test-email',auth,admin,asyncHandler(async(req,res)=>{if(!req.body.email)return res.status(400).json({message:'Indica un email de destino'});await sendEmail(req.body.email,'Prueba SMTP GuardiaPro','La configuración SMTP funciona correctamente.');res.json({message:'Correo de prueba enviado'});}));
 app.post('/api/config/test-telegram',auth,admin,asyncHandler(async(req,res)=>{await sendTelegram('<b>GuardiaPro</b>\nLa configuración de Telegram funciona correctamente.');res.json({message:'Mensaje de prueba enviado'});}));
+app.use('/api/database',databaseAdmin);
 app.put('/api/profile',auth,asyncHandler(async(req,res)=>{const {password,current_password,...data}=req.body;if(password){const me=await db.user.findUniqueOrThrow({where:{id:req.user!.id}});if(!me.password||!await bcrypt.compare(current_password,me.password))return res.status(400).json({message:'Contraseña actual incorrecta'});data.password=await bcrypt.hash(password,12);}res.json(publicUser(await db.user.update({where:{id:req.user!.id},data})));}));app.delete('/api/profile',auth,asyncHandler(async(req,res)=>{await db.user.delete({where:{id:req.user!.id}});res.status(204).end();}));
 app.use('/api',auth,crud);
 app.use('/api',(req,res)=>res.status(404).json({message:`Ruta API no encontrada: ${req.method} ${req.originalUrl}`}));
@@ -59,7 +61,12 @@ async function migrateCompatibility(){
 }
 
 async function start(){
-  await migrateCompatibility();
+  let lastError:unknown;
+  for(let attempt=1;attempt<=15;attempt++){
+    try{await migrateCompatibility();lastError=undefined;break}
+    catch(error){lastError=error;console.warn(`Base de datos no disponible (intento ${attempt}/15). Reintentando en 3 segundos...`);await new Promise(resolve=>setTimeout(resolve,3000))}
+  }
+  if(lastError)throw lastError;
   server.listen(Number(process.env.PORT||4000),()=>console.log(`GuardiaPro API en http://localhost:${process.env.PORT||4000}`));
 }
 start().catch(error=>{console.error('No fue posible iniciar GuardiaPro:',error);process.exit(1)});
