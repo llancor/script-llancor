@@ -25,7 +25,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-La aplicación queda publicada en el puerto indicado por `HTTP_PORT` (80 por defecto). MySQL no se expone a Internet y sus datos persisten en el volumen `mysql_data`. Para actualizar: `git pull && docker compose up -d --build`.
+La aplicación queda publicada en el puerto indicado por `HTTP_PORT` (8080 por defecto). MySQL no se expone a Internet y sus datos persisten en el volumen `mysql_data`. Para actualizar: `git pull && docker compose up -d --build`.
 
 Para producción con dominio, sitúa un proxy TLS (Caddy, Traefik o Nginx) delante del puerto HTTP y define `APP_URL=https://tu-dominio`.
 
@@ -36,9 +36,9 @@ chmod +x Instalar_GuardiaPro_llancor_v3.0.sh
 ./Instalar_GuardiaPro_llancor_v3.0.sh
 ```
 
-Permite instalar Docker, desplegar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos.
+Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar GuardiaPro** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
 
-El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `Control_Entrada_Guardia`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
+El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `GuardiaPro-beta`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
 
 Cuando el repositorio ya existe, el instalador ejecuta `git pull --ff-only` antes de construir para utilizar siempre el código y los Dockerfiles más recientes.
 
