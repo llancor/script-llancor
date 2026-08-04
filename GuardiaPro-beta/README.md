@@ -38,7 +38,7 @@ chmod +x Instalar_GuardiaPro_llancor_v3.0.sh
 
 Permite instalar Docker, desplegar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos.
 
-El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `Control_Entrada_Guardia`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
+El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `GuardiaPro-beta`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
 
 Cuando el repositorio ya existe, el instalador ejecuta `git pull --ff-only` antes de construir para utilizar siempre el código y los Dockerfiles más recientes.
 
