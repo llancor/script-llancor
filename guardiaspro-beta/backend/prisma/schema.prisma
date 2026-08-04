@@ -1,0 +1,382 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "mysql"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  jefe_turno
+  guardia
+  establecimiento
+}
+enum Rango {
+  supervisor
+  guardia_senior
+  guardia
+  cabo
+  conserje
+  nochero
+}
+enum EstadoPersonal {
+  Activo
+  Inactivo
+  Licencia
+  Suspendido
+}
+enum EstadoRecinto {
+  Activo
+  Inactivo
+}
+enum TipoTurno {
+  Manana
+  Tarde
+  Dia
+  Noche
+  Personalizado
+}
+enum EstadoTurno {
+  Programado
+  En_curso
+  Completado
+  Cancelado
+}
+enum EstadoRonda {
+  Programada
+  En_curso
+  Completada
+  Incidente
+}
+enum EstadoEntrada {
+  Dentro
+  Salio
+  Denegado
+}
+enum TipoReporte {
+  Novedad
+  Incidencia
+  Siniestro
+  Mantenimiento
+  Otro
+}
+enum Severidad {
+  Baja
+  Media
+  Alta
+  Critica
+}
+enum EstadoReporte {
+  Abierto
+  En_revision
+  Resuelto
+  Cerrado
+}
+enum TipoAlerta {
+  Intrusion
+  Emergencia
+  Sistema
+  Acceso_no_autorizado
+  Otro
+}
+enum NivelAlerta {
+  Info
+  Advertencia
+  Critica
+}
+enum EstadoAlerta {
+  Activa
+  Atendida
+  Resuelta
+}
+
+model User {
+  id String @id @default(cuid())
+  full_name String
+  email String @unique
+  password String?
+  role Role @default(guardia)
+  rango Rango?
+  telefono String?
+  cargo String?
+  permisos Json @default("{}")
+  email_verified Boolean @default(false)
+  google_id String? @unique
+  enabled Boolean @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  guardias_creados Guardia[] @relation("GuardiaCreator")
+  recintos_creados Recinto[] @relation("RecintoCreator")
+  turnos_creados Turno[] @relation("TurnoCreator")
+  rondas_creadas Ronda[] @relation("RondaCreator")
+  entradas_creadas Entrada[] @relation("EntradaCreator")
+  reportes_creados Reporte[] @relation("ReporteCreator")
+  alertas_creadas Alerta[] @relation("AlertaCreator")
+  relevos_creados Relevo[] @relation("RelevoCreator")
+  @@map("users")
+}
+
+model Guardia {
+  id String @id @default(cuid())
+  nombre String
+  documento String @unique
+  telefono String?
+  email String?
+  rango Rango @default(guardia)
+  estado EstadoPersonal @default(Activo)
+  fecha_ingreso DateTime?
+  foto_url String? @db.MediumText
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  turnos Turno[]
+  rondas Ronda[]
+  entradas Entrada[]
+  reportes Reporte[]
+  alertas Alerta[]
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  creador User? @relation("GuardiaCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  @@index([recinto_id])
+  @@index([estado])
+  @@map("guardias")
+}
+
+model Recinto {
+  id String @id @default(cuid())
+  nombre String
+  direccion String
+  tipo String
+  encargado String?
+  email String?
+  telefono String?
+  observaciones String?
+  estado EstadoRecinto @default(Activo)
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("RecintoCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  guardias Guardia[]
+  turnos Turno[]
+  rondas Ronda[]
+  entradas Entrada[]
+  reportes Reporte[]
+  alertas Alerta[]
+  @@index([estado])
+  @@map("recintos")
+}
+
+model Turno {
+  id String @id @default(cuid())
+  guardia_id String?
+  guardia_nombre String
+  tipo_turno TipoTurno
+  fecha DateTime
+  hora_inicio String
+  hora_fin String
+  ubicacion String?
+  observaciones String?
+  estado EstadoTurno @default(Programado)
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  guardia Guardia? @relation(fields: [guardia_id], references: [id], onDelete: SetNull)
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  creador User? @relation("TurnoCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  @@index([guardia_id])
+  @@index([recinto_id])
+  @@index([estado])
+  @@index([fecha])
+  @@map("turnos")
+}
+
+model Ronda {
+  id String @id @default(cuid())
+  guardia_id String?
+  guardia_nombre String
+  fecha_hora_inicio DateTime
+  fecha_hora_fin DateTime?
+  puntos_recorridos String?
+  novedades String?
+  estado EstadoRonda @default(Programada)
+  ruta Json
+  distancia_m Decimal @default(0) @db.Decimal(12,2)
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  guardia Guardia? @relation(fields: [guardia_id], references: [id], onDelete: SetNull)
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  creador User? @relation("RondaCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  @@index([guardia_id])
+  @@index([recinto_id])
+  @@index([estado])
+  @@index([fecha_hora_inicio])
+  @@map("rondas")
+}
+
+model Entrada {
+  id String @id @default(cuid())
+  visitante_nombre String
+  visitante_documento String?
+  vehiculo String?
+  motivo String?
+  persona_visita String?
+  hora_entrada DateTime
+  hora_salida DateTime?
+  guardia_id String?
+  guardia_nombre String?
+  estado EstadoEntrada @default(Dentro)
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("EntradaCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  guardia Guardia? @relation(fields: [guardia_id], references: [id], onDelete: SetNull)
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  @@index([guardia_id])
+  @@index([recinto_id])
+  @@index([estado])
+  @@index([hora_entrada])
+  @@map("entradas")
+}
+
+model Reporte {
+  id String @id @default(cuid())
+  titulo String
+  tipo TipoReporte
+  severidad Severidad
+  fecha DateTime
+  descripcion String?
+  ubicacion String?
+  guardia_id String?
+  guardia_nombre String?
+  estado EstadoReporte @default(Abierto)
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("ReporteCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  guardia Guardia? @relation(fields: [guardia_id], references: [id], onDelete: SetNull)
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  @@index([guardia_id])
+  @@index([recinto_id])
+  @@index([estado])
+  @@index([fecha])
+  @@map("reportes")
+}
+
+model Alerta {
+  id String @id @default(cuid())
+  titulo String
+  tipo TipoAlerta
+  nivel NivelAlerta
+  fecha DateTime
+  mensaje String?
+  ubicacion String?
+  guardia_id String?
+  estado EstadoAlerta @default(Activa)
+  recinto_id String?
+  recinto_nombre String?
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("AlertaCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  guardia Guardia? @relation(fields: [guardia_id], references: [id], onDelete: SetNull)
+  recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
+  @@index([guardia_id])
+  @@index([recinto_id])
+  @@index([estado])
+  @@index([fecha])
+  @@map("alertas")
+}
+
+model Relevo {
+  id String @id @default(cuid())
+  turno_id String?
+  guardia_saliente_id String?
+  guardia_saliente_nombre String
+  guardia_entrante_id String?
+  guardia_entrante_nombre String
+  recinto_id String?
+  recinto_nombre String?
+  fecha_hora DateTime @default(now())
+  novedades String @db.Text
+  estado_entrega String @default("Completa")
+  created_by_id String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  creador User? @relation("RelevoCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  @@index([fecha_hora])
+  @@index([guardia_saliente_id])
+  @@index([guardia_entrante_id])
+  @@map("relevos")
+}
+
+model Configuracion {
+  id Int @id @default(1)
+  permitir_registro_publico Boolean @default(false)
+  smtp_host String?
+  smtp_port Int @default(587)
+  smtp_secure Boolean @default(false)
+  smtp_user String?
+  smtp_password String?
+  mail_from String?
+  telegram_enabled Boolean @default(false)
+  telegram_bot_token String?
+  telegram_chat_id String?
+  alert_email_enabled Boolean @default(false)
+  alert_telegram_enabled Boolean @default(true)
+  report_email_enabled Boolean @default(false)
+  report_telegram_enabled Boolean @default(false)
+  notification_email String?
+  shift_email_enabled Boolean @default(false)
+  timezone String @default("America/Santiago")
+  date_format String @default("DD/MM/YYYY")
+  time_format String @default("24h")
+  turno_dia_inicio String @default("08:00")
+  turno_dia_fin String @default("20:00")
+  turno_noche_inicio String @default("20:00")
+  turno_noche_fin String @default("08:00")
+  theme String @default("esmeralda")
+  brand_name String @default("GuardiaPro")
+  brand_subtitle String @default("Centro de operaciones")
+  hero_title String @default("Seguridad conectada, decisiones claras.")
+  hero_description String? @db.Text
+  hero_footer String @default("Protección visible. Gestión inteligente.")
+  logo_url String? @db.MediumText
+  icon_url String? @db.MediumText
+  hero_image_url String? @db.MediumText
+  public_page_enabled Boolean @default(false)
+  public_banner_color String @default("#e2e8f0")
+  company_contact_enabled Boolean @default(false)
+  company_contact_name String?
+  company_email String?
+  company_phone String?
+  company_address String?
+  company_website_url String?
+  company_title String @default("Seguridad que inspira confianza")
+  company_description String? @db.Text
+  company_services String? @db.Text
+  quote_email String?
+  updated_at DateTime @updatedAt
+  @@map("configuracion")
+}
+
+model OtpToken {
+  id String @id @default(cuid())
+  email String
+  code String
+  purpose String
+  expires_at DateTime
+  created_at DateTime @default(now())
+  @@index([email, purpose])
+  @@map("otp_tokens")
+}
