@@ -5,7 +5,7 @@ REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
 DEFAULT_INSTALL_ROOT="/opt/guardiapro"
 DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
-PROJECT_SUBDIR="GuardiaPro-beta"
+PROJECT_SUBDIR="guardiapro"
 APP_DIR="$SCRIPT_DIR"
 
 # Si se ejecuta desde una copia instalada, administra esa instancia concreta.
@@ -291,15 +291,15 @@ uninstall_app(){
 
 while true; do
   title
-  printf "${C}${B} INSTALACIÓN${N}\n"
+  printf "  ${C}${B} INSTALACIÓN${N}\n"
   printf "  ${Y}1)${C} Instalar dependencias${N}\n"
   printf "  ${Y}2)${C} Instalar Control de Seguridad${N}\n\n"
-  printf "${C}${B} ADMINISTRACIÓN${N}\n"
+  printf "  ${C}${B} ADMINISTRACIÓN${N}\n"
   printf "  ${Y}3)${C} Estado y control del servicio${N}\n"
   printf "  ${Y}4)${C} Cambiar puerto de Docker${N}\n"
   printf "  ${Y}5)${C} Ver URL y puerto${N}\n"
   printf "  ${Y}6)${C} Gestión de usuarios${N}\n\n"
-  printf "${C}${B} MANTENIMIENTO${N}\n"
+  printf "  ${C}${B} MANTENIMIENTO${N}\n"
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}9)${C} Ver credenciales iniciales${N}\n"
