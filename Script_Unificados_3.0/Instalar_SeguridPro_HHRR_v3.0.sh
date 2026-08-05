@@ -34,9 +34,9 @@ root(){ if [[ ${EUID:-$(id -u)} -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
 instance_name(){
   local path="$1" base suffix
   base="$(basename "$path" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
-  [[ -n "$base" ]] || base="guardiapro"
+  [[ -n "$base" ]] || base="seguridpro"
   suffix="$(printf '%s' "$path" | sha256sum | cut -c1-8)"
-  printf 'guardiapro_%s_%s' "$base" "$suffix"
+  printf 'seguridpro_%s_%s' "$base" "$suffix"
 }
 select_installation(){
   local chosen port
@@ -84,8 +84,8 @@ migrate_legacy_env(){
   local target_env="$APP_DIR/.env" legacy_env
   [[ -f "$target_env" ]] && return 0
   for legacy_env in \
-    "/opt/guardiapro/guardiapro-rrhh/.env" \
-    "/opt/guardiapro/guardiapro/.env"; do
+    "/opt/seguridpro/seguridpro-rrhh/.env" \
+    "/opt/seguridpro/seguridpro/.env"; do
     if [[ -f "$legacy_env" ]]; then
       cp "$legacy_env" "$target_env" || return 1
       printf "${G}Configuración existente migrada desde %s.${N}\n" "$legacy_env"
@@ -110,7 +110,7 @@ download_project(){
     return 0
   fi
   title
-  printf "${B}Descargando GuardiaPro RRHH desde GitHub...${N}\n\n"
+  printf "${B}Descargando SeguridPro RRHH desde GitHub...${N}\n\n"
   if ! has git; then
     root apt-get update || return 1
     root apt-get install -y git ca-certificates || return 1
@@ -159,7 +159,7 @@ prepare_env(){
         'SMTP_PORT=587' \
         'SMTP_USER=' \
         'SMTP_PASS=' \
-        'MAIL_FROM=GuardiaPro <no-reply@guardiapro.local>' > .env
+        'MAIL_FROM=SeguridPro <no-reply@seguridpro.local>' > .env
       printf "${Y}No se encontró .env.docker.example; se creó una configuración nueva.${N}\n"
     fi
     setenv MYSQL_PASSWORD "$(openssl rand -hex 24)"
@@ -211,7 +211,7 @@ install_app(){
   setenv HTTP_PORT "$INSTALL_HTTP_PORT"
   setenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")"
   [[ -n "$url" ]] && setenv APP_URL "$url"
-  printf "\n${B}Construyendo y arrancando GuardiaPro RRHH...${N}\n"
+  printf "\n${B}Construyendo y arrancando SeguridPro RRHH...${N}\n"
   if dc up -d --build; then printf "${G}Instalación terminada.${N}\n"; show_url; else printf "${R}Falló la instalación. Revisa los registros desde el menú de estado.${N}\n"; fi
 }
 
@@ -257,20 +257,20 @@ repair_database(){
 show_initial_credentials(){
   title
   printf "${C}${B}Credenciales iniciales${N}\n\n"
-  printf "${B}Usuario:${N} admin@guardiapro.cl\n"
-  printf "${B}Contraseña:${N} GuardiaPro2026!\n\n"
+  printf "${B}Usuario:${N} admin@seguridpro.cl\n"
+  printf "${B}Contraseña:${N} SeguridPro2026!\n\n"
   printf "${Y}Por seguridad, cambia esta contraseña después del primer inicio de sesión.${N}\n"
 }
 
 update_app(){
   title
-  printf "${C}${B}Actualizar GuardiaPro con el módulo RRHH${N}\n\n"
+  printf "${C}${B}Actualizar SeguridPro con el módulo RRHH${N}\n\n"
   if ! project_ready; then
     if [[ -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" || -d "$INSTALL_ROOT/.git" ]]; then
       APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
       cd "$APP_DIR" || return 1
     else
-      printf "${R}No se encontró el repositorio de GuardiaPro en $INSTALL_ROOT.${N}\n"
+      printf "${R}No se encontró el repositorio de SeguridPro en $INSTALL_ROOT.${N}\n"
       return 1
     fi
   fi
@@ -297,7 +297,7 @@ update_app(){
   prepare_env
   printf "\n${B}Reconstruyendo y reiniciando servicios sin borrar los datos...${N}\n"
   if dc up -d --build --remove-orphans; then
-    printf "${G}GuardiaPro RRHH fue actualizado correctamente. La base de datos y configuración se conservaron.${N}\n"
+    printf "${G}SeguridPro RRHH fue actualizado correctamente. La base de datos y configuración se conservaron.${N}\n"
     dc ps
     show_url
   else
@@ -308,7 +308,7 @@ update_app(){
 
 uninstall_app(){
   title
-  printf "${C}${B}Desinstalacion completa de GuardiaPro${N}\n\n"
+  printf "${C}${B}Desinstalacion completa de SeguridPro${N}\n\n"
   printf "${R}Se eliminaran contenedores, imagenes, red, volumen MySQL y todos los archivos de esta instancia.${N}\n\n"
   local confirmation target
   read -rp 'Escribe ELIMINAR TODO para continuar: ' confirmation
@@ -331,7 +331,7 @@ while true; do
   title
   printf "${C}${B} INSTALACIÓN${N}\n"
   printf "  ${Y}1)${C} Instalar dependencias${N}\n"
-  printf "  ${Y}2)${C} Instalar o migrar a GuardiaPro RRHH${N}\n\n"
+  printf "  ${Y}2)${C} Instalar o migrar a SeguridPro RRHH${N}\n\n"
   printf "${C}${B} ADMINISTRACIÓN${N}\n"
   printf "  ${Y}3)${C} Estado y control del servicio${N}\n"
   printf "  ${Y}4)${C} Cambiar puerto de Docker${N}\n"
@@ -341,7 +341,7 @@ while true; do
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}9)${C} Ver credenciales iniciales${N}\n"
-  printf "  ${Y}10)${C} Actualizar GuardiaPro RRHH${N}\n"
+  printf "  ${Y}10)${C} Actualizar SeguridPro RRHH${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o
   if [[ "$o" == 8 ]]; then repair_database; pause; continue; fi

@@ -3,7 +3,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="${SEGURIDPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
 DEFAULT_INSTALL_ROOT="/opt/seguridpro"
-DEFAULT_HTTP_PORT="8081"
+DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${SEGURIDPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
 PROJECT_SUBDIR="SeguridPro"
 APP_DIR="$SCRIPT_DIR"
@@ -62,6 +62,12 @@ dc(){
 
 project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
 
+clone_project_folder(){
+  git clone --depth 1 --filter=blob:none --no-checkout --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
+  git -C "$INSTALL_ROOT" sparse-checkout set --no-cone "/$PROJECT_SUBDIR/" || return 1
+  git -C "$INSTALL_ROOT" checkout main || return 1
+}
+
 download_project(){
   if project_ready; then
     local existing_root
@@ -91,7 +97,7 @@ download_project(){
     return 1
   else
     root install -d -o "$(id -un)" -g "$(id -gn)" "$INSTALL_ROOT" || return 1
-    git clone --depth 1 --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
+    clone_project_folder || return 1
   fi
   APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
   if [[ ! -f "$APP_DIR/docker-compose.yml" ]]; then
