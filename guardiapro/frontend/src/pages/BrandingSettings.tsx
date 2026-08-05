@@ -16,7 +16,7 @@ export default function BrandingSettings({v,setV}:{v:any;setV:(x:any)=>void}){
       <div className="mb-5 flex items-center gap-2"><Image className="text-purple-600"/><div><h2 className="text-lg font-bold">Imágenes corporativas</h2><p className="text-sm text-slate-500">PNG, JPG, WebP o SVG; máximo 2 MB por imagen. La vista conserva la proporción y no deforma el archivo.</p></div></div>
       <div className="grid items-start gap-4 lg:grid-cols-3">
         <Upload label="Logo" help="Recomendado: 800 × 300 px" ratio="aspect-[8/3]" value={v.logo_url} onFile={(f:File)=>upload('logo_url',f)} clear={()=>change('logo_url',null)}/>
-        <Upload label="Icono del sitio" help="Recomendado: 512 × 512 px" ratio="aspect-square" value={v.icon_url} onFile={(f:File)=>upload('icon_url',f)} clear={()=>change('icon_url',null)}/>
+        <Upload label="Icono de barra lateral y sitio" help="Se muestra junto al nombre de marca. Recomendado: 512 × 512 px" ratio="aspect-square" value={v.icon_url} onFile={(f:File)=>upload('icon_url',f)} clear={()=>change('icon_url',null)}/>
         <Upload label="Imagen principal" help="Recomendado: 1600 × 900 px" ratio="aspect-video" value={v.hero_image_url} onFile={(f:File)=>upload('hero_image_url',f)} clear={()=>change('hero_image_url',null)}/>
       </div>
     </section>

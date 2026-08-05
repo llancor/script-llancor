@@ -11,6 +11,8 @@ const startOfDay=(value:Date)=>new Date(value.getFullYear(),value.getMonth(),val
 const addDays=(value:Date,days:number)=>{const date=new Date(value);date.setDate(date.getDate()+days);return date};
 const sameDay=(a:Date,b:Date)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
 const weekStart=(value:Date)=>addDays(startOfDay(value),-((value.getDay()+6)%7));
+const entrySchedule=(item:any)=>{const input=new Date(item.hora_entrada);const entrada=Number.isNaN(input.getTime())?'Sin fecha de entrada':input.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});const output=item.hora_salida?new Date(item.hora_salida):null;const salida=output&&!Number.isNaN(output.getTime())?output.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Pendiente';return `Entrada: ${entrada} · Salida: ${salida}`};
+const eventDetails=(item:any)=>{const date=new Date(item.fecha);const formatted=Number.isNaN(date.getTime())?'Sin fecha y hora':date.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});return `Tipo: ${String(item.tipo||'Sin tipo').replaceAll('_',' ')} · ${formatted}`};
 
 export default function CrudPage({moduleKey}:{moduleKey:string}){
   const m=modules[moduleKey];
@@ -30,7 +32,7 @@ export default function CrudPage({moduleKey}:{moduleKey:string}){
   const fields=useMemo(()=>m.fields
     .filter(f=>!['guardia_id','recinto_id'].includes(f.name))
     .map(f=>f.name==='recinto_nombre'?{...f,type:'select' as const,options:recintos.map(r=>r.nombre)}:f.name==='guardia_nombre'?{...f,type:'select' as const,options:guardias.map(g=>g.nombre)}:f),[m,recintos,guardias]);
-  const load=()=>api(`/${m.key}?limit=500&q=${encodeURIComponent(q)}`).then(r=>setItems(r.data)).catch(e=>setError(e.message));
+  const load=()=>api(`/${m.key}?limit=500&q=${encodeURIComponent(q)}`).then(r=>setItems(r.data.map((item:any)=>m.key==='entrada'?{...item,detalle_horario:entrySchedule(item)}:['reporte','alerta'].includes(m.key)?{...item,detalle_evento:eventDetails(item)}:item))).catch(e=>setError(e.message));
   useEffect(()=>{const t=setTimeout(load,250);return()=>clearTimeout(t)},[moduleKey,q]);
   useEffect(()=>{setGuardias([]);setRecintos([]);if(usesGuardia)api('/lookups/guardias').then(setGuardias).catch(e=>setError(e.message));if(usesRecinto)api('/lookups/recintos').then(setRecintos).catch(e=>setError(e.message))},[moduleKey]);
   const save=async(v:any)=>{

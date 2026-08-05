@@ -11,17 +11,18 @@ import authRoutes from './auth.js';
 import { crud } from './crud.js';
 import { auth, admin, permit, asyncHandler } from './middleware.js';
 import { db, publicUser, sendEmail, sendTelegram } from './lib.js';
+import { databaseAdmin } from './database-admin.js';
 const app = express();
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: process.env.FRONTEND_URL } });
 app.set('io', io);
 app.use(helmet());
 app.use(cors({ origin: process.env.FRONTEND_URL }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(morgan('dev'));
 app.use('/api/auth', rateLimit({ windowMs: 60_000, limit: 30 }), authRoutes);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-app.get('/api/public/branding', asyncHandler(async (req, res) => { const c = await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }); res.json({ theme: c.theme, brand_name: c.brand_name, brand_subtitle: c.brand_subtitle, hero_title: c.hero_title, hero_description: c.hero_description, hero_footer: c.hero_footer, logo_url: c.logo_url, icon_url: c.icon_url, hero_image_url: c.hero_image_url, public_page_enabled: c.public_page_enabled, company_title: c.company_title, company_description: c.company_description, company_services: c.company_services }); }));
+app.get('/api/public/branding', asyncHandler(async (req, res) => { const c = await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } }); res.json({ theme: c.theme, brand_name: c.brand_name, brand_subtitle: c.brand_subtitle, hero_title: c.hero_title, hero_description: c.hero_description, hero_footer: c.hero_footer, logo_url: c.logo_url, icon_url: c.icon_url, hero_image_url: c.hero_image_url, public_page_enabled: c.public_page_enabled, public_banner_color: c.public_banner_color, company_title: c.company_title, company_description: c.company_description, company_services: c.company_services, ...(c.company_contact_enabled ? { company_contact_enabled: true, company_contact_name: c.company_contact_name, company_email: c.company_email, company_phone: c.company_phone, company_address: c.company_address, company_website_url: c.company_website_url } : { company_contact_enabled: false }) }); }));
 app.post('/api/public/quote', rateLimit({ windowMs: 60_000, limit: 5 }), asyncHandler(async (req, res) => { const { nombre, email, telefono, empresa, mensaje } = req.body; if (!nombre || !email || !mensaje)
     return res.status(400).json({ message: 'Nombre, email y mensaje son obligatorios' }); const c = await db.configuracion.findUnique({ where: { id: 1 } }); if (!c?.public_page_enabled)
     return res.status(404).json({ message: 'Página no disponible' }); const destination = c.quote_email || c.smtp_user || process.env.SMTP_USER; if (!destination)
@@ -40,12 +41,35 @@ app.delete('/api/users/:id', auth, admin, asyncHandler(async (req, res) => { if 
     return res.status(400).json({ message: 'No puedes eliminar tu usuario desde administración' }); await db.user.delete({ where: { id: req.params.id } }); res.status(204).end(); }));
 const safeConfig = (c) => ({ ...c, smtp_password: undefined, telegram_bot_token: undefined, smtp_password_configured: !!c.smtp_password, telegram_token_configured: !!c.telegram_bot_token });
 app.get('/api/config', auth, permit('configuracion'), asyncHandler(async (req, res) => res.json(safeConfig(await db.configuracion.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } })))));
-app.put('/api/config', auth, admin, asyncHandler(async (req, res) => { const allowed = ['permitir_registro_publico', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'mail_from', 'telegram_enabled', 'telegram_bot_token', 'telegram_chat_id', 'theme', 'brand_name', 'brand_subtitle', 'hero_title', 'hero_description', 'hero_footer', 'logo_url', 'icon_url', 'hero_image_url', 'public_page_enabled', 'company_title', 'company_description', 'company_services', 'quote_email']; const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key))); if (!data.smtp_password)
+app.put('/api/config', auth, admin, asyncHandler(async (req, res) => { const allowed = ['permitir_registro_publico', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_password', 'mail_from', 'telegram_enabled', 'telegram_bot_token', 'telegram_chat_id', 'alert_email_enabled', 'alert_telegram_enabled', 'report_email_enabled', 'report_telegram_enabled', 'notification_email', 'shift_email_enabled', 'timezone', 'date_format', 'time_format', 'turno_dia_inicio', 'turno_dia_fin', 'turno_noche_inicio', 'turno_noche_fin', 'turno_dia_color', 'turno_noche_color', 'turno_personalizado_color', 'theme', 'brand_name', 'brand_subtitle', 'hero_title', 'hero_description', 'hero_footer', 'logo_url', 'icon_url', 'hero_image_url', 'public_page_enabled', 'public_banner_color', 'company_contact_enabled', 'company_contact_name', 'company_email', 'company_phone', 'company_address', 'company_website_url', 'company_title', 'company_description', 'company_services', 'quote_email']; const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key))); if (!data.smtp_password)
     delete data.smtp_password; if (!data.telegram_bot_token)
     delete data.telegram_bot_token; const config = await db.configuracion.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } }); res.json(safeConfig(config)); }));
 app.post('/api/config/test-email', auth, admin, asyncHandler(async (req, res) => { if (!req.body.email)
     return res.status(400).json({ message: 'Indica un email de destino' }); await sendEmail(req.body.email, 'Prueba SMTP GuardiaPro', 'La configuración SMTP funciona correctamente.'); res.json({ message: 'Correo de prueba enviado' }); }));
 app.post('/api/config/test-telegram', auth, admin, asyncHandler(async (req, res) => { await sendTelegram('<b>GuardiaPro</b>\nLa configuración de Telegram funciona correctamente.'); res.json({ message: 'Mensaje de prueba enviado' }); }));
+app.post('/api/turnos/programar', auth, permit('turnos'), asyncHandler(async (req, res) => {
+    const { guardia_id, guardia_nombre, recinto_id, recinto_nombre, tipo_turno, fecha, hora_inicio, hora_fin, ubicacion, observaciones, periodo = 'dia' } = req.body;
+    if (!guardia_id || !guardia_nombre || !fecha || !hora_inicio || !hora_fin)
+        return res.status(400).json({ message: 'Guardia, fecha y horario son obligatorios' });
+    if (!['Dia', 'Noche', 'Personalizado'].includes(tipo_turno))
+        return res.status(400).json({ message: 'Tipo de turno inválido' });
+    const start = new Date(`${fecha}T00:00:00.000Z`);
+    if (Number.isNaN(start.getTime()))
+        return res.status(400).json({ message: 'Fecha inválida' });
+    const dates = [];
+    const cursor = new Date(start);
+    const total = periodo === 'semana' ? 7 : periodo === 'mes' ? new Date(start.getUTCFullYear(), start.getUTCMonth() + 1, 0).getUTCDate() - start.getUTCDate() + 1 : 1;
+    for (let index = 0; index < total; index++) {
+        dates.push(new Date(cursor));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    await db.turno.createMany({ data: dates.map(day => ({ guardia_id, guardia_nombre, recinto_id: recinto_id || null, recinto_nombre: recinto_nombre || null, tipo_turno, fecha: day, hora_inicio, hora_fin, ubicacion: ubicacion || null, observaciones: observaciones || null, estado: 'Programado', created_by_id: req.user.id })) });
+    const [guardia, config] = await Promise.all([db.guardia.findUnique({ where: { id: guardia_id }, select: { email: true } }), db.configuracion.findUnique({ where: { id: 1 } })]);
+    if (config?.shift_email_enabled && guardia?.email)
+        sendEmail(guardia.email, `Programación de turnos GuardiaPro`, `${guardia_nombre}: ${dates.length} turno(s) desde ${fecha}, horario ${hora_inicio} a ${hora_fin}, ${recinto_nombre || ubicacion || 'sin recinto indicado'}.`).catch(error => console.error('No se pudo enviar programación:', error));
+    res.status(201).json({ message: `Se crearon ${dates.length} turno(s)`, count: dates.length });
+}));
+app.use('/api/database', databaseAdmin);
 app.put('/api/profile', auth, asyncHandler(async (req, res) => { const { password, current_password, ...data } = req.body; if (password) {
     const me = await db.user.findUniqueOrThrow({ where: { id: req.user.id } });
     if (!me.password || !await bcrypt.compare(current_password, me.password))
@@ -54,6 +78,7 @@ app.put('/api/profile', auth, asyncHandler(async (req, res) => { const { passwor
 } res.json(publicUser(await db.user.update({ where: { id: req.user.id }, data }))); }));
 app.delete('/api/profile', auth, asyncHandler(async (req, res) => { await db.user.delete({ where: { id: req.user.id } }); res.status(204).end(); }));
 app.use('/api', auth, crud);
+app.use('/api', (req, res) => res.status(404).json({ message: `Ruta API no encontrada: ${req.method} ${req.originalUrl}` }));
 app.use((err, req, res, next) => { console.error(err); res.status(err.name === 'ZodError' ? 400 : 500).json({ message: err.issues?.[0]?.message || err.message || 'Error interno' }); });
 async function migrateCompatibility() {
     const existing = async (table) => new Set((await db.$queryRawUnsafe(`SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}'`)).map(column => column.COLUMN_NAME));
@@ -65,14 +90,33 @@ async function migrateCompatibility() {
         smtp_host: 'VARCHAR(190) NULL', smtp_port: 'SMALLINT UNSIGNED NOT NULL DEFAULT 587', smtp_secure: 'BOOLEAN NOT NULL DEFAULT FALSE',
         smtp_user: 'VARCHAR(190) NULL', smtp_password: 'VARCHAR(255) NULL', mail_from: 'VARCHAR(255) NULL',
         telegram_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', telegram_bot_token: 'VARCHAR(255) NULL', telegram_chat_id: 'VARCHAR(100) NULL',
+        alert_email_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', alert_telegram_enabled: 'BOOLEAN NOT NULL DEFAULT TRUE',
+        report_email_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', report_telegram_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', notification_email: 'VARCHAR(190) NULL', shift_email_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE',
+        timezone: "VARCHAR(80) NOT NULL DEFAULT 'America/Santiago'", date_format: "VARCHAR(20) NOT NULL DEFAULT 'DD/MM/YYYY'", time_format: "VARCHAR(10) NOT NULL DEFAULT '24h'",
+        turno_dia_inicio: "VARCHAR(8) NOT NULL DEFAULT '08:00'", turno_dia_fin: "VARCHAR(8) NOT NULL DEFAULT '20:00'", turno_noche_inicio: "VARCHAR(8) NOT NULL DEFAULT '20:00'", turno_noche_fin: "VARCHAR(8) NOT NULL DEFAULT '08:00'",
+        turno_dia_color: "VARCHAR(20) NOT NULL DEFAULT '#f59e0b'", turno_noche_color: "VARCHAR(20) NOT NULL DEFAULT '#2563eb'", turno_personalizado_color: "VARCHAR(20) NOT NULL DEFAULT '#7c3aed'",
         theme: "VARCHAR(30) NOT NULL DEFAULT 'esmeralda'", brand_name: "VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro'", brand_subtitle: "VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones'",
         hero_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.'", hero_description: 'TEXT NULL', hero_footer: "VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.'",
-        logo_url: 'MEDIUMTEXT NULL', icon_url: 'MEDIUMTEXT NULL', hero_image_url: 'MEDIUMTEXT NULL', public_page_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE',
+        logo_url: 'MEDIUMTEXT NULL', icon_url: 'MEDIUMTEXT NULL', hero_image_url: 'MEDIUMTEXT NULL', public_page_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', public_banner_color: "VARCHAR(20) NOT NULL DEFAULT '#e2e8f0'",
+        company_contact_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', company_contact_name: 'VARCHAR(150) NULL', company_email: 'VARCHAR(190) NULL', company_phone: 'VARCHAR(40) NULL', company_address: 'VARCHAR(255) NULL', company_website_url: 'VARCHAR(500) NULL',
         company_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad que inspira confianza'", company_description: 'TEXT NULL', company_services: 'TEXT NULL', quote_email: 'VARCHAR(190) NULL'
     };
     for (const [column, definition] of Object.entries(configDefinitions)) {
         if (!configColumns.has(column))
             await db.$executeRawUnsafe(`ALTER TABLE configuracion ADD COLUMN ${column} ${definition}`);
+    }
+    await db.$executeRawUnsafe("ALTER TABLE turnos MODIFY COLUMN tipo_turno ENUM('Manana','Tarde','Dia','Noche','Personalizado') NOT NULL");
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS relevos (
+    id VARCHAR(30) PRIMARY KEY, turno_id VARCHAR(30) NULL, guardia_saliente_id VARCHAR(30) NULL, guardia_saliente_nombre VARCHAR(150) NOT NULL,
+    guardia_entrante_id VARCHAR(30) NULL, guardia_entrante_nombre VARCHAR(150) NOT NULL, recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150) NULL,
+    fecha_hora DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, novedades TEXT NOT NULL, estado_entrega VARCHAR(30) NOT NULL DEFAULT 'Completa', created_by_id VARCHAR(30) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_relevos_fecha (fecha_hora), KEY idx_relevos_saliente (guardia_saliente_id), KEY idx_relevos_entrante (guardia_entrante_id),
+    CONSTRAINT fk_relevos_creator FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE SET NULL
+  ) ENGINE=InnoDB`);
+    const guardiaPhoto = await db.$queryRawUnsafe("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'guardias' AND COLUMN_NAME = 'foto_url'");
+    if (guardiaPhoto[0] && guardiaPhoto[0].DATA_TYPE.toLowerCase() !== 'mediumtext') {
+        await db.$executeRawUnsafe('ALTER TABLE guardias MODIFY COLUMN foto_url MEDIUMTEXT NULL');
     }
     const columns = await db.$queryRawUnsafe("SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turnos' AND COLUMN_NAME IN ('hora_inicio','hora_fin')");
     if (columns.some(column => column.DATA_TYPE.toLowerCase() === 'time')) {
@@ -81,7 +125,21 @@ async function migrateCompatibility() {
     }
 }
 async function start() {
-    await migrateCompatibility();
+    let lastError;
+    for (let attempt = 1; attempt <= 15; attempt++) {
+        try {
+            await migrateCompatibility();
+            lastError = undefined;
+            break;
+        }
+        catch (error) {
+            lastError = error;
+            console.warn(`Base de datos no disponible (intento ${attempt}/15). Reintentando en 3 segundos...`);
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+    }
+    if (lastError)
+        throw lastError;
     server.listen(Number(process.env.PORT || 4000), () => console.log(`GuardiaPro API en http://localhost:${process.env.PORT || 4000}`));
 }
 start().catch(error => { console.error('No fue posible iniciar GuardiaPro:', error); process.exit(1); });
