@@ -41,13 +41,27 @@ async function notifyCreated(model:string,item:any){
   if(!config)return;
   const isAlert=model==='alerta';
   const label=isAlert?'Alerta':'Reporte';
-  const details=[item.titulo,item.ubicacion&&`Ubicación: ${item.ubicacion}`,item.mensaje||item.descripcion].filter(Boolean).join('\n');
+  const guardia=item.guardia_nombre||(item.guardia_id
+    ?(await db.guardia.findUnique({where:{id:item.guardia_id},select:{nombre:true}}))?.nombre
+    :null)||'Sin guardia asignado';
+  const recinto=item.recinto_nombre||'Sin recinto indicado';
+  const locale=config.date_format==='MM/DD/YYYY'?'en-US':config.date_format==='YYYY-MM-DD'?'en-CA':'es-CL';
+  const fechaHora=item.fecha?new Intl.DateTimeFormat(locale,{
+    timeZone:config.timezone||'America/Santiago',
+    day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',
+    hour12:config.time_format==='12h'
+  }).format(new Date(item.fecha)):'Sin fecha y hora';
+  const lines=[item.titulo,`Tipo: ${item.tipo||'Sin tipo'}`,`Guardia: ${guardia}`,
+    `Recinto: ${recinto}`,`Fecha y hora: ${fechaHora}`,
+    `Ubicación: ${item.ubicacion||'Sin ubicación'}`,item.mensaje||item.descripcion].filter(Boolean);
+  const details=lines.join('\n');
   const destination=config.notification_email||config.smtp_user||process.env.SMTP_USER;
   if((isAlert?config.alert_email_enabled:config.report_email_enabled)&&destination){
     await sendEmail(destination,`${label} GuardiaPro: ${item.titulo}`,details);
   }
   if(isAlert?config.alert_telegram_enabled:config.report_telegram_enabled){
-    await sendTelegram(`<b>${label}: ${item.titulo}</b>\n${item.ubicacion||'Sin ubicación'}\n${item.mensaje||item.descripcion||''}`);
+    const escapeHtml=(value:unknown)=>String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    await sendTelegram(`<b>${escapeHtml(label)}: ${escapeHtml(item.titulo)}</b>\n${lines.slice(1).map(escapeHtml).join('\n')}`);
   }
 }
 crud.param('model',(req,res,next,model)=>allowed.includes(model)?next():res.status(404).json({message:'Recurso no encontrado'}));
