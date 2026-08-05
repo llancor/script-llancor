@@ -12,7 +12,7 @@ Monorepo para gestión integral de seguridad física.
 
 La web queda en `http://localhost:5173` y la API en `http://localhost:4000/api`.
 
-Usuario inicial del seed: `admin@guardiapro.cl` / `GuardiaPro2026!`.
+Usuario inicial del seed: `admin@seguridpro.cl` / `SeguridPro2026!`.
 
 ## Despliegue en Debian con Docker
 

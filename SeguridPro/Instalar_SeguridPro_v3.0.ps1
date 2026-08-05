@@ -47,11 +47,19 @@ function Install-Dependencies {
     if(-not (Get-Command wsl -ErrorAction SilentlyContinue)){Write-Host 'Instalando WSL 2; Windows puede solicitar un reinicio.' -ForegroundColor Yellow;wsl --install}
     if(-not (Get-Command docker -ErrorAction SilentlyContinue)){winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements;Write-Host 'Docker Desktop instalado. Reinicia Windows si se solicita y abre Docker Desktop.' -ForegroundColor Yellow}else{Write-Host 'Docker ya está instalado.' -ForegroundColor Green}
 }
+function Copy-ProjectFolder {
+    git clone --depth 1 --filter=blob:none --no-checkout --branch main $RepoUrl $InstallRoot
+    if($LASTEXITCODE -ne 0){return $false}
+    git -C $InstallRoot sparse-checkout set --no-cone "/$ProjectSubdir/"
+    if($LASTEXITCODE -ne 0){return $false}
+    git -C $InstallRoot checkout main
+    return $LASTEXITCODE -eq 0
+}
 function Get-Project {
     if(Project-Ready){try{$root=git -C $script:AppDir rev-parse --show-toplevel 2>$null;if($root){Write-Host 'Buscando actualizaciones en GitHub...' -ForegroundColor Cyan;git -C $root pull --ff-only}}catch{};return $true}
     if(-not (Get-Command git -ErrorAction SilentlyContinue)){Write-Host 'Primero instala las dependencias.' -ForegroundColor Red;return $false}
     Write-Host 'Descargando SeguridPro desde GitHub...' -ForegroundColor Cyan
-    if(Test-Path (Join-Path $InstallRoot '.git')){git -C $InstallRoot pull --ff-only}elseif(Test-Path $InstallRoot){Write-Host "La ruta $InstallRoot existe y no es un repositorio Git." -ForegroundColor Red;return $false}else{git clone --depth 1 --branch main $RepoUrl $InstallRoot}
+    if(Test-Path (Join-Path $InstallRoot '.git')){git -C $InstallRoot pull --ff-only}elseif(Test-Path $InstallRoot){Write-Host "La ruta $InstallRoot existe y no es un repositorio Git." -ForegroundColor Red;return $false}elseif(-not (Copy-ProjectFolder)){Write-Host 'No fue posible descargar la carpeta SeguridPro.' -ForegroundColor Red;return $false}
     $script:AppDir=Join-Path $InstallRoot $ProjectSubdir
     if(-not (Project-Ready)){Write-Host "No se encontró $ProjectSubdir/docker-compose.yml." -ForegroundColor Red;return $false};return $true
 }
