@@ -37,6 +37,8 @@ export default function CrudPage({moduleKey}:{moduleKey:string}){
   useEffect(()=>{setGuardias([]);setRecintos([]);if(usesGuardia)api('/lookups/guardias').then(setGuardias).catch(e=>setError(e.message));if(usesRecinto)api('/lookups/recintos').then(setRecintos).catch(e=>setError(e.message))},[moduleKey]);
   const save=async(v:any)=>{
     const data={...v};
+    delete data.detalle_evento;
+    delete data.detalle_horario;
     if(usesGuardia){const guardia=guardias.find(g=>g.nombre===(data.guardia_nombre||guardias[0]?.nombre));data.guardia_id=guardia?.id||null;data.guardia_nombre=guardia?.nombre||null}
     if(usesRecinto){const recinto=recintos.find(r=>r.nombre===(data.recinto_nombre||recintos[0]?.nombre));data.recinto_id=recinto?.id||null;data.recinto_nombre=recinto?.nombre||null}
     await api(`/${m.key}${editing?'/'+editing.id:''}`,{method:editing?'PUT':'POST',body:JSON.stringify(data)});

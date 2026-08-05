@@ -5,6 +5,8 @@ const allowed=['guardia','recinto','turno','ronda','entrada','reporte','alerta',
 const dateFields:Record<string,string[]>= {guardia:['fecha_ingreso'],turno:['fecha'],ronda:['fecha_hora_inicio','fecha_hora_fin'],entrada:['hora_entrada','hora_salida'],reporte:['fecha'],alerta:['fecha'],relevo:['fecha_hora']};
 const normalize=(model:string,body:any,updating=false)=>{
   const data:any=Object.fromEntries(Object.entries(body).map(([k,v])=>[k,dateFields[model]?.includes(k)&&v?new Date(v as string):v]));
+  delete data.detalle_evento;
+  delete data.detalle_horario;
   if(!updating){
     const defaults:Record<string,Record<string,string>>={
       turno:{tipo_turno:'Manana',estado:'Programado'},
