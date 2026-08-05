@@ -11,8 +11,34 @@ const eventFields=['tipo','titulo','fecha_inicio','fecha_fin','estado','dias','d
 const warningFields=['fecha_hecho','lugar','tipo_incumplimiento','hechos','norma_relacionada','descargos','medida','responsable','testigos','fecha_notificacion','estado','constancia_recepcion'];
 const audit=(req:any,accion:string,entidad:string,entidadId:string)=>console.info(`[AUDITORIA RRHH] ${new Date().toISOString()} usuario=${req.user?.id} accion=${accion} entidad=${entidad} id=${entidadId}`);
 
-rrhh.get('/resumen',asyncHandler(async(_req,res)=>{const today=new Date();const month=new Date(today.getFullYear(),today.getMonth(),1);const [activos,licencias,ausencias,amonestaciones,contratos]=await Promise.all([db.trabajador.count({where:{estado:'Activo'}}),db.eventoRRHH.count({where:{tipo:'Licencia',fecha_inicio:{lte:today},OR:[{fecha_fin:null},{fecha_fin:{gte:today}}]}}),db.eventoRRHH.count({where:{tipo:'Inasistencia',fecha_inicio:{gte:month}}}),db.amonestacion.count({where:{fecha_hecho:{gte:month}}}),db.trabajador.count({where:{fecha_termino:{gte:today}}})]);res.json({activos,licencias,ausencias,amonestaciones,contratos});}));
-rrhh.get('/trabajadores',asyncHandler(async(req,res)=>{const q=String(req.query.q||'');const data=await db.trabajador.findMany({where:q?{OR:[{nombre:{contains:q}},{documento:{contains:q}},{cargo:{contains:q}}]}:{},include:{_count:{select:{eventos:true,amonestaciones:true}}},orderBy:{nombre:'asc'}});res.json(data);}));
+// Al entrar a RR. HH. incorpora los guardias y usuarios existentes. Solo se
+// actualizan datos compartidos; el contenido propio del expediente se conserva.
+async function performPeopleSync(){
+  const [guardias,users]=await Promise.all([
+    db.guardia.findMany(),
+    db.user.findMany({select:{id:true,guardia_id:true,full_name:true,email:true,telefono:true,cargo:true,rango:true,role:true,enabled:true,foto_url:true}})
+  ]);
+  const usersByGuardia=new Map<string,any>(users.filter(user=>user.guardia_id).map(user=>[user.guardia_id!,user]));
+  for(const guardia of guardias){
+    const linkedUser=usersByGuardia.get(guardia.id);
+    const existing=await db.trabajador.findFirst({where:{OR:[{guardia_id:guardia.id},{documento:guardia.documento},...(linkedUser?[{user_id:linkedUser.id}]:[])]}});
+    const shared={nombre:guardia.nombre,telefono:guardia.telefono,email_corporativo:linkedUser?.email||guardia.email,cargo:linkedUser?.cargo||String(guardia.rango).replaceAll('_',' '),recinto:guardia.recinto_nombre,estado:guardia.estado==='Activo'?'Activo':String(guardia.estado),foto_url:linkedUser?.foto_url||guardia.foto_url,guardia_id:guardia.id,...(linkedUser?{user_id:linkedUser.id}:{})};
+    if(existing)await db.trabajador.update({where:{id:existing.id},data:shared});
+    else await db.trabajador.create({data:{...shared,documento:guardia.documento,fecha_ingreso:guardia.fecha_ingreso}});
+  }
+  for(const user of users){
+    if(user.guardia_id)continue;
+    const existing=await db.trabajador.findFirst({where:{OR:[{user_id:user.id},{email_corporativo:user.email},{email_personal:user.email}]}});
+    const shared={nombre:user.full_name,telefono:user.telefono,email_corporativo:user.email,cargo:user.cargo||String(user.rango||user.role).replaceAll('_',' '),estado:user.enabled?'Activo':'Inactivo',foto_url:user.foto_url,user_id:user.id};
+    if(existing)await db.trabajador.update({where:{id:existing.id},data:shared});
+    else await db.trabajador.create({data:{...shared,documento:`USR-${user.id}`}});
+  }
+}
+let syncInProgress:Promise<void>|null=null;
+const syncRegisteredPeople=()=>{if(!syncInProgress)syncInProgress=performPeopleSync().finally(()=>{syncInProgress=null});return syncInProgress};
+
+rrhh.get('/resumen',asyncHandler(async(_req,res)=>{await syncRegisteredPeople();const today=new Date();const month=new Date(today.getFullYear(),today.getMonth(),1);const [activos,licencias,ausencias,amonestaciones,contratos]=await Promise.all([db.trabajador.count({where:{estado:'Activo'}}),db.eventoRRHH.count({where:{tipo:'Licencia',fecha_inicio:{lte:today},OR:[{fecha_fin:null},{fecha_fin:{gte:today}}]}}),db.eventoRRHH.count({where:{tipo:'Inasistencia',fecha_inicio:{gte:month}}}),db.amonestacion.count({where:{fecha_hecho:{gte:month}}}),db.trabajador.count({where:{fecha_termino:{gte:today}}})]);res.json({activos,licencias,ausencias,amonestaciones,contratos});}));
+rrhh.get('/trabajadores',asyncHandler(async(req,res)=>{await syncRegisteredPeople();const q=String(req.query.q||'');const data=await db.trabajador.findMany({where:q?{OR:[{nombre:{contains:q}},{documento:{contains:q}},{cargo:{contains:q}}]}:{},include:{_count:{select:{eventos:true,amonestaciones:true}}},orderBy:{nombre:'asc'}});res.json(data);}));
 rrhh.post('/trabajadores',admin,asyncHandler(async(req,res)=>{const data:any=clean(req.body,workerFields);if(!data.nombre||!data.documento||!data.cargo)return res.status(400).json({message:'Nombre, documento y cargo son obligatorios'});const item=await db.trabajador.create({data:{...data,created_by_id:req.user!.id}});audit(req,'crear','trabajador',item.id);res.status(201).json(item);}));
 rrhh.get('/trabajadores/:id',asyncHandler(async(req,res)=>{const item=await db.trabajador.findUniqueOrThrow({where:{id:req.params.id},include:{eventos:{orderBy:{fecha_inicio:'desc'}},amonestaciones:{orderBy:{fecha_hecho:'desc'}}}});audit(req,'ver','trabajador',item.id);res.json(item);}));
 rrhh.put('/trabajadores/:id',admin,asyncHandler(async(req,res)=>{const item=await db.trabajador.update({where:{id:req.params.id},data:clean(req.body,workerFields)});audit(req,'editar','trabajador',item.id);res.json(item);}));
