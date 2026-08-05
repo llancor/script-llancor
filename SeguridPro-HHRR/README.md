@@ -50,7 +50,7 @@ Abre PowerShell y ejecuta:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\Instalar_GuardiaPro_Windows_v1.0.ps1
+.\Instalar_SeguridPro_HHRR_v3.0.ps1
 ```
 
 El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.
