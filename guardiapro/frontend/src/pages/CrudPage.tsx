@@ -4,6 +4,7 @@ import { api } from '../state';
 import { modules } from '../config';
 import { Badge, Button, Dialog, EntityForm as BaseEntityForm, PageHead, Pencil, Plus, Search, Trash2, toneFor } from '../components';
 import GuardiaForm from './GuardiaForm';
+import{formatDateTime}from'../date-format';
 
 type PeriodView='day'|'week'|'month'|'list';
 const calendarModules:Record<string,string>={turnos:'fecha',entradas:'hora_entrada',reportes:'fecha',alertas:'fecha'};
@@ -11,8 +12,8 @@ const startOfDay=(value:Date)=>new Date(value.getFullYear(),value.getMonth(),val
 const addDays=(value:Date,days:number)=>{const date=new Date(value);date.setDate(date.getDate()+days);return date};
 const sameDay=(a:Date,b:Date)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
 const weekStart=(value:Date)=>addDays(startOfDay(value),-((value.getDay()+6)%7));
-const entrySchedule=(item:any)=>{const input=new Date(item.hora_entrada);const entrada=Number.isNaN(input.getTime())?'Sin fecha de entrada':input.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});const output=item.hora_salida?new Date(item.hora_salida):null;const salida=output&&!Number.isNaN(output.getTime())?output.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Pendiente';return `Entrada: ${entrada} · Salida: ${salida}`};
-const eventDetails=(item:any)=>{const date=new Date(item.fecha);const formatted=Number.isNaN(date.getTime())?'Sin fecha y hora':date.toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});return `Fecha y hora: ${formatted} · Tipo: ${String(item.tipo||'Sin tipo').replaceAll('_',' ')}`};
+const entrySchedule=(item:any)=>`Entrada: ${formatDateTime(item.hora_entrada)} · Salida: ${item.hora_salida?formatDateTime(item.hora_salida):'Pendiente'}`;
+const eventDetails=(item:any)=>`Fecha y hora: ${formatDateTime(item.fecha)} · Tipo: ${String(item.tipo||'Sin tipo').replaceAll('_',' ')}`;
 
 export default function CrudPage({moduleKey}:{moduleKey:string}){
   const m=modules[moduleKey];
