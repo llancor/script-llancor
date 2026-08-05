@@ -125,6 +125,7 @@ CREATE TABLE configuracion (
   timezone VARCHAR(80) NOT NULL DEFAULT 'America/Santiago', date_format VARCHAR(20) NOT NULL DEFAULT 'DD/MM/YYYY', time_format VARCHAR(10) NOT NULL DEFAULT '24h',
   turno_dia_inicio VARCHAR(8) NOT NULL DEFAULT '08:00', turno_dia_fin VARCHAR(8) NOT NULL DEFAULT '20:00',
   turno_noche_inicio VARCHAR(8) NOT NULL DEFAULT '20:00', turno_noche_fin VARCHAR(8) NOT NULL DEFAULT '08:00',
+  turno_dia_color VARCHAR(20) NOT NULL DEFAULT '#f59e0b', turno_noche_color VARCHAR(20) NOT NULL DEFAULT '#2563eb', turno_personalizado_color VARCHAR(20) NOT NULL DEFAULT '#7c3aed',
   theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro',
   brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
   hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.', hero_description TEXT,
