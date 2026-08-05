@@ -84,8 +84,8 @@ function Show-InitialCredentials {
     Write-Title
     Write-Host 'Credenciales iniciales' -ForegroundColor Cyan
     Write-Host
-    Write-Host 'Usuario: ' -NoNewline;Write-Host 'admin@guardiapro.cl' -ForegroundColor White
-    Write-Host 'Contraseña: ' -NoNewline;Write-Host 'GuardiaPro2026!' -ForegroundColor White
+    Write-Host 'Usuario: ' -NoNewline;Write-Host 'admin@seguridpro.cl' -ForegroundColor White
+    Write-Host 'Contraseña: ' -NoNewline;Write-Host 'SeguridPro2026!' -ForegroundColor White
     Write-Host
     Write-Host 'Por seguridad, cambia esta contraseña después del primer inicio de sesión.' -ForegroundColor Yellow
 }
