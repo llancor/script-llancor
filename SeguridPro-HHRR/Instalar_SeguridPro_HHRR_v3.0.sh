@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -uo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/SeguridPro-HHRR.git}"
+REPO_URL="${GUARDIAPRO_REPO_URL:-https://github.com/llancor/script-llancor.git}"
+PROJECT_SUBDIR="SeguridPro-HHRR"
 DEFAULT_INSTALL_ROOT="/opt/seguridpro-rrhh"
 DEFAULT_HTTP_PORT="8080"
 INSTALL_ROOT="${GUARDIAPRO_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
@@ -14,13 +15,19 @@ if [[ -z "${GUARDIAPRO_INSTALL_DIR:-}" && -f "$SCRIPT_DIR/docker-compose.yml" ]]
 fi
 
 # Si el instalador está separado del proyecto, reutiliza una descarga anterior.
-if [[ ! -f "$APP_DIR/docker-compose.yml" && -f "$INSTALL_ROOT/docker-compose.yml" ]]; then
-  APP_DIR="$INSTALL_ROOT"
+if [[ ! -f "$APP_DIR/docker-compose.yml" && -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" ]]; then
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
 fi
 cd "$APP_DIR"
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; N='\033[0m'
 
-title(){ clear; printf "${C}${B}========================================\n  GuardiaPro RRHH · Actualizador Debian\n========================================${N}\n\n"; }
+title(){
+  clear
+  printf "${C}${B}==================================================\n"
+  printf "                 SeguridPro-RRHH                  \n"
+  printf "              Instalador para Debian              \n"
+  printf "==================================================${N}\n\n"
+}
 pause(){ printf '\nPresiona Enter para continuar...'; read -r; }
 has(){ command -v "$1" >/dev/null 2>&1; }
 root(){ if [[ ${EUID:-$(id -u)} -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
@@ -41,7 +48,7 @@ select_installation(){
     return 1
   fi
   INSTALL_ROOT="${chosen%/}"
-  APP_DIR="$INSTALL_ROOT"
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
   printf "Puerto HTTP [${C}%s${N}]: " "$DEFAULT_HTTP_PORT"
   read -r port
   port="${port:-$DEFAULT_HTTP_PORT}"
@@ -53,16 +60,28 @@ select_installation(){
 }
 dc(){
   if ! has docker; then printf "${R}Docker no está instalado.${N}\n"; return 1; fi
-  if ! docker info >/dev/null 2>&1; then printf "${R}Docker no está accesible. Usa sudo o vuelve a iniciar sesión tras agregarte al grupo docker.${N}\n"; return 1; fi
   local project_name
   project_name="$(getenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")")"
-  docker compose --project-name "$project_name" "$@"
+  if docker info >/dev/null 2>&1; then
+    docker compose --project-name "$project_name" "$@"
+  elif root docker info >/dev/null 2>&1; then
+    root docker compose --project-name "$project_name" "$@"
+  else
+    printf "${R}Docker no está iniciado o no está accesible ni siquiera con sudo.${N}\n"
+    return 1
+  fi
 }
 
 project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
 
+configure_sparse_checkout(){
+  local repository_root="$1"
+  git -C "$repository_root" sparse-checkout init --cone || return 1
+  git -C "$repository_root" sparse-checkout set "$PROJECT_SUBDIR" || return 1
+}
+
 migrate_legacy_env(){
-  local target_env="$INSTALL_ROOT/.env" legacy_env
+  local target_env="$APP_DIR/.env" legacy_env
   [[ -f "$target_env" ]] && return 0
   for legacy_env in \
     "/opt/guardiapro/guardiapro-rrhh/.env" \
@@ -81,7 +100,8 @@ download_project(){
     existing_root="$(git -C "$APP_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$existing_root" ]]; then
       printf "${B}Buscando actualizaciones en GitHub...${N}\n"
-      if ! git -C "$existing_root" pull --ff-only; then
+      configure_sparse_checkout "$existing_root" || return 1
+      if ! GIT_TERMINAL_PROMPT=0 git -C "$existing_root" pull --ff-only; then
         printf "${R}No fue posible actualizar el proyecto. Revisa la conexion o los cambios locales.${N}\n"
         return 1
       fi
@@ -97,18 +117,20 @@ download_project(){
   fi
   if [[ -d "$INSTALL_ROOT/.git" ]]; then
     printf 'Actualizando instalación existente...\n'
-    git -C "$INSTALL_ROOT" pull --ff-only || return 1
+    configure_sparse_checkout "$INSTALL_ROOT" || return 1
+    GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_ROOT" pull --ff-only || return 1
   elif [[ -e "$INSTALL_ROOT" ]]; then
     printf "${R}La ruta $INSTALL_ROOT ya existe pero no es un repositorio Git.${N}\n"
     printf 'Elimínala, muévela o define otra ruta con GUARDIAPRO_INSTALL_DIR.\n'
     return 1
   else
     root install -d -o "$(id -un)" -g "$(id -gn)" "$INSTALL_ROOT" || return 1
-    git clone --depth 1 --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
+    GIT_TERMINAL_PROMPT=0 git clone --depth 1 --filter=blob:none --sparse --branch main "$REPO_URL" "$INSTALL_ROOT" || return 1
+    configure_sparse_checkout "$INSTALL_ROOT" || return 1
   fi
-  APP_DIR="$INSTALL_ROOT"
+  APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
   if [[ ! -f "$APP_DIR/docker-compose.yml" ]]; then
-    printf "${R}No se encontró docker-compose.yml en la raíz del repositorio.${N}\n"
+    printf "${R}No se encontró %s/docker-compose.yml en el repositorio.${N}\n" "$PROJECT_SUBDIR"
     return 1
   fi
   migrate_legacy_env || return 1
@@ -153,7 +175,7 @@ prepare_env(){
 
 dependencies(){
   title; printf "${B}Instalando dependencias oficiales de Docker...${N}\n\n"
-  if has docker && docker compose version >/dev/null 2>&1; then printf "${G}Docker y Compose ya están instalados.${N}\n"; return; fi
+  if has docker && { docker compose version >/dev/null 2>&1 || root docker compose version >/dev/null 2>&1; }; then printf "${G}Docker y Compose ya están instalados.${N}\n"; return; fi
   root apt-get update || return
   root apt-get install -y ca-certificates curl git openssl || return
   root install -m 0755 -d /etc/apt/keyrings || return
@@ -244,8 +266,8 @@ update_app(){
   title
   printf "${C}${B}Actualizar GuardiaPro con el módulo RRHH${N}\n\n"
   if ! project_ready; then
-    if [[ -f "$INSTALL_ROOT/docker-compose.yml" || -d "$INSTALL_ROOT/.git" ]]; then
-      APP_DIR="$INSTALL_ROOT"
+    if [[ -f "$INSTALL_ROOT/$PROJECT_SUBDIR/docker-compose.yml" || -d "$INSTALL_ROOT/.git" ]]; then
+      APP_DIR="$INSTALL_ROOT/$PROJECT_SUBDIR"
       cd "$APP_DIR" || return 1
     else
       printf "${R}No se encontró el repositorio de GuardiaPro en $INSTALL_ROOT.${N}\n"
@@ -263,11 +285,12 @@ update_app(){
     return 1
   fi
   printf "${B}Descargando cambios desde GitHub...${N}\n"
-  if ! git -C "$repository_root" pull --ff-only; then
+  configure_sparse_checkout "$repository_root" || return 1
+  if ! GIT_TERMINAL_PROMPT=0 git -C "$repository_root" pull --ff-only; then
     printf "${R}No fue posible actualizar. Revisa la conexión o los cambios locales.${N}\n"
     return 1
   fi
-  APP_DIR="$repository_root"
+  APP_DIR="$repository_root/$PROJECT_SUBDIR"
   cd "$APP_DIR" || return 1
   project_ready || { printf "${R}La carpeta actualizada no contiene una instalación válida.${N}\n"; return 1; }
   migrate_legacy_env || return 1
@@ -293,7 +316,7 @@ uninstall_app(){
   target="$(realpath -m "$INSTALL_ROOT")"
   case "$target" in
     /opt/*|/root/*|/home/*/*)
-      [[ -f "$target/docker-compose.yml" ]] || { printf "${R}No se encontro una instalacion valida en $target.${N}\n"; return; }
+      [[ -f "$target/$PROJECT_SUBDIR/docker-compose.yml" ]] || { printf "${R}No se encontro una instalacion valida en $target/$PROJECT_SUBDIR.${N}\n"; return; }
       dc down -v --rmi local --remove-orphans || return
       cd / || return
       root rm -rf -- "$target"
