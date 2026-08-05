@@ -32,13 +32,13 @@ Para producción con dominio, sitúa un proxy TLS (Caddy, Traefik o Nginx) delan
 ### Menú de administración para Debian
 
 ```bash
-chmod +x Instalar_GuardiaPro_llancor_v3.0.sh
-./Instalar_GuardiaPro_llancor_v3.0.sh
+chmod +x Instalar_SeguridPro_v3.0.sh
+./Instalar_SeguridPro_v3.0.sh
 ```
 
 Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar GuardiaPro** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
 
-El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `GuardiaPro-beta`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
+El archivo también funciona de manera autónoma: si se copia solo `Instalar_SeguridPro_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `SeguridPro`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
 
 Cuando el repositorio ya existe, el instalador ejecuta `git pull --ff-only` antes de construir para utilizar siempre el código y los Dockerfiles más recientes.
 
@@ -50,7 +50,7 @@ Abre PowerShell y ejecuta:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\Instalar_GuardiaPro_Windows_v1.0.ps1
+.\Instalar_SeguridPro_v3.0.ps1
 ```
 
 El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.

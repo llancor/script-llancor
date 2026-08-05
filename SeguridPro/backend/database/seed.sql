@@ -1,8 +1,8 @@
 USE guardiapro;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
--- Contraseña del usuario: GuardiaPro2026! (el seed Prisma genera el hash recomendado).
+-- Contraseña del usuario: SeguridPro2026! (el seed Prisma genera el hash recomendado).
 INSERT INTO users (id,full_name,email,password,role,rango,permisos,email_verified)
-VALUES ('usr_admin_demo','Administrador GuardiaPro','admin@guardiapro.cl','$2b$12$Ep9Ot5NjLRtgPhyezG47R.0n0wrJQNAj1MxadXYvP8LzWoQOeuDqu','admin','supervisor',JSON_OBJECT('guardias',true,'turnos',true,'relevos',true,'rondas',true,'recintos',true,'entradas',true,'reportes',true,'alertas',true,'usuarios',true,'configuracion',true),true)
+VALUES ('usr_admin_demo','Administrador SeguridPro','admin@seguridpro.cl','$2b$12$xCaxBD99uKB249dXuIsb0u9APtSBV2u8og7QWWiQN.Yea.D6lw16u','admin','supervisor',JSON_OBJECT('guardias',true,'turnos',true,'relevos',true,'rondas',true,'recintos',true,'entradas',true,'reportes',true,'alertas',true,'usuarios',true,'configuracion',true),true)
 ON DUPLICATE KEY UPDATE full_name=VALUES(full_name);
 INSERT INTO configuracion (id,permitir_registro_publico) VALUES (1,true) ON DUPLICATE KEY UPDATE permitir_registro_publico=VALUES(permitir_registro_publico);
 INSERT INTO recintos (id,nombre,direccion,tipo,encargado,estado,created_by_id) VALUES
