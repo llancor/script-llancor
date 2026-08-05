@@ -101,6 +101,9 @@ model User {
   telefono String?
   cargo String?
   permisos Json @default("{}")
+  guardia_id String? @unique
+  foto_url String? @db.MediumText
+  must_change_password Boolean @default(false)
   email_verified Boolean @default(false)
   google_id String? @unique
   enabled Boolean @default(true)
@@ -114,6 +117,7 @@ model User {
   reportes_creados Reporte[] @relation("ReporteCreator")
   alertas_creadas Alerta[] @relation("AlertaCreator")
   relevos_creados Relevo[] @relation("RelevoCreator")
+  guardia Guardia? @relation("GuardiaUser", fields: [guardia_id], references: [id], onDelete: SetNull)
   @@map("users")
 }
 
@@ -139,6 +143,7 @@ model Guardia {
   alertas Alerta[]
   recinto Recinto? @relation(fields: [recinto_id], references: [id], onDelete: SetNull)
   creador User? @relation("GuardiaCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  usuario User? @relation("GuardiaUser")
   @@index([recinto_id])
   @@index([estado])
   @@map("guardias")
