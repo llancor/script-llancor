@@ -352,13 +352,16 @@ port(){
 }
 
 users(){
-  while true; do title; printf "${C}${B}Gestión de usuarios${N}\n\n${Y}1)${C} Listar usuarios${N}\n${Y}2)${C} Restablecer contraseña${N}\n${Y}3)${C} Volver${N}\n\n"; read -rp 'Opción: ' o
+  while true; do title; printf "${C}${B}Gestión de usuarios${N}\n\n${Y}1)${C} Listar usuarios${N}\n${Y}2)${C} Activar usuario${N}\n${Y}3)${C} Desactivar usuario${N}\n${Y}4)${C} Cambiar contraseña${N}\n${Y}5)${C} Quitar bloqueo por intentos fallidos${N}\n${Y}6)${C} Volver${N}\n\n"; read -rp 'Opción: ' o
     case "$o" in
       1) dc exec -T backend node dist/src/admin-cli.js list-users; pause;;
-      2)
-        local email pass confirm; read -rp 'Email: ' email; read -rsp 'Nueva contraseña (mínimo 8 caracteres): ' pass; printf '\n'; read -rsp 'Confirmar contraseña: ' confirm; printf '\n'
-        if [[ ${#pass} -lt 8 ]]; then printf "${R}Debe tener al menos 8 caracteres.${N}\n"; elif [[ "$pass" != "$confirm" ]]; then printf "${R}Las contraseñas no coinciden.${N}\n"; else dc exec -T backend node dist/src/admin-cli.js reset-password "$email" "$pass"; fi; pause;;
-      3) return;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;;
+      2|3|4|5)
+        dc exec -T backend node dist/src/admin-cli.js list-users; local selected; read -rp 'Número de usuario: ' selected
+        if [[ "$o" == 2 ]]; then dc exec -T backend node dist/src/admin-cli.js set-enabled "$selected" true
+        elif [[ "$o" == 3 ]]; then dc exec -T backend node dist/src/admin-cli.js set-enabled "$selected" false
+        elif [[ "$o" == 5 ]]; then dc exec -T backend node dist/src/admin-cli.js unlock "$selected"
+        else local pass confirm; read -rsp 'Nueva contraseña (mínimo 10 caracteres): ' pass; printf '\n'; read -rsp 'Confirmar contraseña: ' confirm; printf '\n'; if [[ ${#pass} -lt 10 ]]; then printf "${R}Debe tener al menos 10 caracteres.${N}\n"; elif [[ "$pass" != "$confirm" ]]; then printf "${R}Las contraseñas no coinciden.${N}\n"; else dc exec -T backend node dist/src/admin-cli.js reset-password "$selected" "$pass"; fi; fi; pause;;
+      6) return;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;;
     esac
   done
 }

@@ -1,7 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 export const db = new PrismaClient();
+const secretKey=()=>crypto.createHash('sha256').update(process.env.JWT_SECRET||'').digest();
+export function encryptSecret(value:string){const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',secretKey(),iv),encrypted=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return ['v1',iv.toString('base64'),cipher.getAuthTag().toString('base64'),encrypted.toString('base64')].join(':')}
+export function decryptSecret(value?:string|null){if(!value)return'';if(!value.startsWith('v1:'))return value;const[,iv,tag,data]=value.split(':'),decipher=crypto.createDecipheriv('aes-256-gcm',secretKey(),Buffer.from(iv,'base64'));decipher.setAuthTag(Buffer.from(tag,'base64'));return Buffer.concat([decipher.update(Buffer.from(data,'base64')),decipher.final()]).toString('utf8')}
 export async function issueSession(user:{id:string;role:string;permisos:unknown},meta:{ip?:string;userAgent?:string}={}){
   const expiresAt=new Date(Date.now()+12*60*60_000);
   const session=await db.session.create({data:{user_id:user.id,expires_at:expiresAt,ip_address:meta.ip,user_agent:meta.userAgent}});

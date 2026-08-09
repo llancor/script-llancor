@@ -14,7 +14,7 @@ const blank=()=>({guardia_nombre:'',recinto_nombre:'',tipo_turno:'Dia',periodo:'
 
 export default function Turnos(){
  const[items,setItems]=useState<any[]>([]),[guardias,setGuardias]=useState<any[]>([]),[recintos,setRecintos]=useState<any[]>([]);
- const[config,setConfig]=useState<any>({turno_dia_inicio:'08:00',turno_dia_fin:'20:00',turno_noche_inicio:'20:00',turno_noche_fin:'08:00',turno_dia_color:'#f59e0b',turno_noche_color:'#2563eb',turno_personalizado_color:'#7c3aed'});
+ const[config,setConfig]=useState<any>({turno_dia_inicio:'08:00',turno_dia_fin:'20:00',turno_manana_inicio:'08:00',turno_manana_fin:'16:00',turno_tarde_inicio:'16:00',turno_tarde_fin:'00:00',turno_noche_inicio:'20:00',turno_noche_fin:'08:00',turno_dia_color:'#f59e0b',turno_noche_color:'#2563eb',turno_personalizado_color:'#7c3aed'});
  const[v,setV]=useState<any>(blank()),[editing,setEditing]=useState<any>(null),[open,setOpen]=useState(false),[error,setError]=useState('');
  const[periodView,setPeriodView]=useState<PeriodView>('week'),[anchorDate,setAnchorDate]=useState(()=>startOfDay(new Date()));
  const load=()=>api('/turno?limit=500').then(x=>setItems(x.data));
@@ -26,7 +26,7 @@ export default function Turnos(){
  const monthStart=new Date(anchorDate.getFullYear(),anchorDate.getMonth(),1),calendarStart=addDays(monthStart,-((monthStart.getDay()+6)%7));
  const calendarDays=Array.from({length:42},(_,i)=>addDays(calendarStart,i));
  const weekDays=Array.from({length:7},(_,i)=>addDays(weekStart(anchorDate),i));
- const applyType=(type:string)=>setV((x:any)=>({...x,tipo_turno:type,...(type==='Dia'?{hora_inicio:config.turno_dia_inicio,hora_fin:config.turno_dia_fin}:type==='Noche'?{hora_inicio:config.turno_noche_inicio,hora_fin:config.turno_noche_fin}:type==='Manana'?{hora_inicio:'08:00',hora_fin:'16:00'}:type==='Tarde'?{hora_inicio:'16:00',hora_fin:'00:00'}:{hora_inicio:'',hora_fin:''})}));
+ const applyType=(type:string)=>setV((x:any)=>({...x,tipo_turno:type,...(type==='Dia'?{hora_inicio:config.turno_dia_inicio,hora_fin:config.turno_dia_fin}:type==='Noche'?{hora_inicio:config.turno_noche_inicio,hora_fin:config.turno_noche_fin}:type==='Manana'?{hora_inicio:config.turno_manana_inicio,hora_fin:config.turno_manana_fin}:type==='Tarde'?{hora_inicio:config.turno_tarde_inicio,hora_fin:config.turno_tarde_fin}:{hora_inicio:'',hora_fin:''})}));
  const begin=(x?:any)=>{setEditing(x||null);setV(x?{...x,fecha:String(x.fecha).slice(0,10),periodo:'dia'}:{...blank(),hora_inicio:config.turno_dia_inicio,hora_fin:config.turno_dia_fin});setOpen(true)};
  const beginAt=(guardia:any,d:Date)=>{setEditing(null);setV({...blank(),guardia_nombre:guardia.nombre,fecha:dateKey(d),hora_inicio:config.turno_dia_inicio,hora_fin:config.turno_dia_fin});setOpen(true)};
  const save=async(e:any)=>{e.preventDefault();setError('');try{const g=guardias.find(x=>x.nombre===v.guardia_nombre),r=recintos.find(x=>x.nombre===v.recinto_nombre);if(!g?.id){setError('Debe seleccionar un guardia válido.');return}if(!v.fecha||!v.hora_inicio||!v.hora_fin){setError('Guardia, fecha y horario son obligatorios.');return}if(v.hora_inicio===v.hora_fin){setError('La hora de inicio y término deben ser diferentes.');return}const data={...v,guardia_id:g.id,guardia_nombre:g.nombre,recinto_id:r?.id||null,recinto_nombre:r?.nombre||null};if(editing){const{periodo,...updateData}=data;await api('/turno/'+editing.id,{method:'PUT',body:JSON.stringify(updateData)})}else await api('/turnos/programar',{method:'POST',body:JSON.stringify(data)});setOpen(false);await load()}catch(e){setError((e as Error).message)}};

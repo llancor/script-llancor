@@ -35,7 +35,7 @@ function Initialize-Env {
     $file=Join-Path $script:AppDir '.env'; if(Test-Path $file){return}
     $template=Join-Path $script:AppDir '.env.docker.example'
     if(Test-Path $template){Copy-Item $template $file}else{[IO.File]::WriteAllLines($file,@('MYSQL_PASSWORD=','MYSQL_ROOT_PASSWORD=','JWT_SECRET=','APP_URL=http://localhost:8080','HTTP_PORT=8080','GOOGLE_CLIENT_ID=','SMTP_HOST=','SMTP_PORT=587','SMTP_USER=','SMTP_PASS=','MAIL_FROM=Seguridad <no-reply@seguridad.local>'),[Text.UTF8Encoding]::new($false))}
-    Set-EnvValue MYSQL_PASSWORD (New-Secret 24);Set-EnvValue MYSQL_ROOT_PASSWORD (New-Secret 24);Set-EnvValue JWT_SECRET (New-Secret 48);Set-EnvValue HTTP_PORT '8080';Set-EnvValue APP_URL 'http://localhost:8080'
+    Set-EnvValue MYSQL_PASSWORD (New-Secret 24);Set-EnvValue MYSQL_ROOT_PASSWORD (New-Secret 24);Set-EnvValue JWT_SECRET (New-Secret 48);Set-EnvValue INITIAL_ADMIN_EMAIL 'admin@seguridad.cl';Set-EnvValue INITIAL_ADMIN_PASSWORD (New-Secret 12);Set-EnvValue HTTP_PORT '8080';Set-EnvValue APP_URL 'http://localhost:8080'
 }
 function Install-Dependencies {
     Write-Title;Write-Host 'Instalando dependencias...' -ForegroundColor Cyan
@@ -109,7 +109,23 @@ function Install-App {
 }
 function Service-Menu { while($true){Write-Title;Write-Host 'ESTADO Y SERVICIOS' -ForegroundColor Cyan;Write-Option 1 'Ver estado';Write-Option 2 'Iniciar';Write-Option 3 'Detener';Write-Option 4 'Reiniciar';Write-Option 5 'Ver registros';Write-Option 6 'Volver';switch(Read-Host 'Opción'){'1'{Invoke-Compose ps;Pause-Menu}'2'{Invoke-Compose up -d;Pause-Menu}'3'{Invoke-Compose stop;Pause-Menu}'4'{Invoke-Compose restart;Pause-Menu}'5'{Invoke-Compose logs --tail=150;Pause-Menu}'6'{return}}} }
 function Change-Port { Write-Title;Initialize-Env;$current=Get-EnvValue HTTP_PORT '8080';$port=Read-Host "Nuevo puerto [$current]";if($port -notmatch '^\d+$' -or [int]$port -lt 1 -or [int]$port -gt 65535){Write-Host 'Puerto inválido.' -ForegroundColor Red;return};Set-EnvValue HTTP_PORT $port;if((Get-EnvValue APP_URL '') -match '^http://localhost(?::\d+)?$'){Set-EnvValue APP_URL "http://localhost:$port"};Invoke-Compose up -d --force-recreate frontend;Show-Url }
-function User-Menu { while($true){Write-Title;Write-Host 'GESTIÓN DE USUARIOS' -ForegroundColor Cyan;Write-Option 1 'Listar usuarios';Write-Option 2 'Restablecer contraseña';Write-Option 3 'Volver';switch(Read-Host 'Opción'){'1'{Invoke-Compose exec -T backend node dist/src/admin-cli.js list-users;Pause-Menu}'2'{$email=Read-Host 'Email';$secure=Read-Host 'Nueva contraseña' -AsSecureString;$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure);try{$password=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)};if($password.Length -lt 8){Write-Host 'Debe tener al menos 8 caracteres.' -ForegroundColor Red}else{Invoke-Compose exec -T backend node dist/src/admin-cli.js reset-password $email $password};Pause-Menu}'3'{return}}} }
+function User-Menu {
+    while($true){
+        Write-Title;Write-Host 'GESTIÓN DE USUARIOS' -ForegroundColor Cyan
+        Write-Option 1 'Listar usuarios';Write-Option 2 'Activar usuario';Write-Option 3 'Desactivar usuario';Write-Option 4 'Cambiar contraseña';Write-Option 5 'Quitar bloqueo por intentos fallidos';Write-Option 6 'Volver'
+        $option=Read-Host 'Opción'
+        if($option -eq '1'){Invoke-Compose exec -T backend node dist/src/admin-cli.js list-users;Pause-Menu;continue}
+        if($option -eq '6'){return}
+        if($option -in @('2','3','4','5')){
+            Invoke-Compose exec -T backend node dist/src/admin-cli.js list-users;$selected=Read-Host 'Número de usuario'
+            if($option -eq '2'){Invoke-Compose exec -T backend node dist/src/admin-cli.js set-enabled $selected true}
+            elseif($option -eq '3'){Invoke-Compose exec -T backend node dist/src/admin-cli.js set-enabled $selected false}
+            elseif($option -eq '5'){Invoke-Compose exec -T backend node dist/src/admin-cli.js unlock $selected}
+            else{$secure=Read-Host 'Nueva contraseña (mínimo 10 caracteres)' -AsSecureString;$ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure);try{$password=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)};if($password.Length -lt 10){Write-Host 'Debe tener al menos 10 caracteres.' -ForegroundColor Red}else{Invoke-Compose exec -T backend node dist/src/admin-cli.js reset-password $selected $password}}
+            Pause-Menu
+        }
+    }
+}
 function Uninstall-App { Write-Title;Write-Option 1 'Quitar contenedores conservando datos';Write-Option 2 'Quitar contenedores y ELIMINAR base de datos';Write-Option 3 'Cancelar';switch(Read-Host 'Opción'){'1'{Invoke-Compose down --remove-orphans}'2'{if((Read-Host 'Escribe ELIMINAR para confirmar') -ceq 'ELIMINAR'){Invoke-Compose down -v --remove-orphans}}} }
 
 function Repair-Database {
@@ -129,8 +145,9 @@ function Show-InitialCredentials {
     Write-Title
     Write-Host 'Credenciales iniciales' -ForegroundColor Cyan
     Write-Host
-    Write-Host 'Usuario: ' -NoNewline;Write-Host 'admin@seguridad.cl' -ForegroundColor White
-    Write-Host 'Contraseña: ' -NoNewline;Write-Host 'SeguridPro2026!' -ForegroundColor White
+    Initialize-Env
+    Write-Host 'Usuario: ' -NoNewline;Write-Host (Get-EnvValue INITIAL_ADMIN_EMAIL 'admin@seguridad.cl') -ForegroundColor White
+    Write-Host 'Contraseña temporal: ' -NoNewline;Write-Host (Get-EnvValue INITIAL_ADMIN_PASSWORD 'No disponible') -ForegroundColor White
     Write-Host
     Write-Host 'Por seguridad, cambia esta contraseña después del primer inicio de sesión.' -ForegroundColor Yellow
 }

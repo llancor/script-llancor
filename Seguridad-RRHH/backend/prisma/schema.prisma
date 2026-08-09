@@ -366,6 +366,15 @@ model Relevo {
 model Configuracion {
   id Int @id @default(1)
   permitir_registro_publico Boolean @default(false)
+  login_max_attempts Int @default(5)
+  login_lock_minutes Int @default(15)
+  login_ban_email_enabled Boolean @default(false)
+  login_ban_telegram_enabled Boolean @default(false)
+  nextcloud_enabled Boolean @default(false)
+  nextcloud_url String?
+  nextcloud_user String?
+  nextcloud_password String?
+  nextcloud_folder String @default("Seguridad-RRHH")
   smtp_host String?
   smtp_port Int @default(587)
   smtp_secure Boolean @default(false)
@@ -386,6 +395,10 @@ model Configuracion {
   time_format String @default("24h")
   turno_dia_inicio String @default("08:00")
   turno_dia_fin String @default("20:00")
+  turno_manana_inicio String @default("08:00")
+  turno_manana_fin String @default("16:00")
+  turno_tarde_inicio String @default("16:00")
+  turno_tarde_fin String @default("00:00")
   turno_noche_inicio String @default("20:00")
   turno_noche_fin String @default("08:00")
   turno_dia_color String @default("#f59e0b")
@@ -479,6 +492,7 @@ model EventoRRHH {
   entidad String?
   folio String?
   archivo_url String? @db.MediumText
+  archivo_cloud_path String?
   confidencial Boolean @default(false)
   notificar_email Boolean @default(false)
   notificar_telegram Boolean @default(false)
