@@ -28,13 +28,15 @@ services:
       PORT: 4000
       DATABASE_URL: mysql://guardiapro:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/guardiapro
       JWT_SECRET: ${JWT_SECRET:-reemplaza-esta-clave-jwt}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@seguridad.cl}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       FRONTEND_URL: ${APP_URL:-http://localhost}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      MAIL_FROM: ${MAIL_FROM:-GuardiaPro <no-reply@guardiapro.local>}
+      MAIL_FROM: ${MAIL_FROM:-Seguridad <no-reply@seguridad.local>}
     depends_on:
       db:
         condition: service_healthy

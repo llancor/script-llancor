@@ -32,8 +32,8 @@ Para producción con dominio, sitúa un proxy TLS (Caddy, Traefik o Nginx) delan
 ### Menú de administración para Debian
 
 ```bash
-chmod +x Instalar_Seguridad_HHRR_v3.1.sh
-./Instalar_Seguridad_HHRR_v3.1.sh
+chmod +x Instalar_Seguridad_HHRR_v4.1.sh
+./Instalar_Seguridad_HHRR_v4.1.sh
 ```
 
 Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar GuardiaPro** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
@@ -43,15 +43,15 @@ Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/de
 Para instalar el proyecto sin descargar su código desde GitHub, copia **la carpeta completa** al servidor (no solamente el script) y ejecuta:
 
 ```bash
-chmod +x Instalar_Seguridad_HHRR-offline_v3.3.sh
-./Instalar_Seguridad_HHRR-offline_v3.3.sh
+chmod +x Instalar_Seguridad_HHRR-offline_v4.1.sh
+./Instalar_Seguridad_HHRR-offline_v4.1.sh
 ```
 
 Selecciona la opción **3) Instalar offline desde esta carpeta**. El script copia el proyecto local a `/opt/seguridad-rrhh`, genera secretos, conserva un `.env` existente y construye los contenedores en el puerto `8082` por defecto.
 
 Esta modalidad evita descargar el código fuente, pero para una instalación completamente desconectada el servidor debe tener previamente Docker Engine, Docker Compose, `rsync` y `openssl`, además de las imágenes `mysql:8.4`, `node:22-alpine` y `nginx:1.27-alpine` y las dependencias de pnpm disponibles en la caché de construcción. La opción **1) Instalar dependencias** y una primera construcción sin caché requieren Internet.
 
-El archivo también funciona de manera autónoma: si se copia solo `Instalar_Seguridad_HHRR_v3.1.sh` a un Debian, la opción **Instalar o migrar a Seguridad RRHH** clona automáticamente `https://github.com/llancor/script-llancor.git`, extrae la carpeta `Seguridad-RRHH` y la instala en `/opt/seguridad-rrhh`. La ubicación puede cambiarse definiendo `SEGURIDAD_INSTALL_DIR` antes de ejecutar el script. El instalador propone el puerto `8082`; una instalación manual con `.env.docker.example` usa `8080`.
+El archivo también funciona de manera autónoma: si se copia solo `Instalar_Seguridad_HHRR_v4.1.sh` a un Debian, la opción **Instalar o migrar a Seguridad RRHH** clona automáticamente `https://github.com/llancor/script-llancor.git`, extrae la carpeta `Seguridad-RRHH` y la instala en `/opt/seguridad-rrhh`. La ubicación puede cambiarse definiendo `SEGURIDAD_INSTALL_DIR` antes de ejecutar el script. El instalador propone el puerto `8082`; una instalación manual con `.env.docker.example` usa `8080`.
 
 Para actualizar una instalación administrada por el menú, usa la opción **Actualizar Seguridad RRHH**. El instalador descarga una copia nueva de `Seguridad-RRHH`, conserva `.env` y reconstruye los servicios sin eliminar el volumen de MySQL.
 
@@ -63,7 +63,7 @@ Abre PowerShell y ejecuta:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\Instalar_Seguridad_HHRR_v3.1.ps1
+.\Instalar_Seguridad_HHRR_v4.1.ps1
 ```
 
 El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.

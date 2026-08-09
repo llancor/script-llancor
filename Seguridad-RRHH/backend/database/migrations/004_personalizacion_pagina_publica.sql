@@ -2,7 +2,7 @@ USE guardiapro;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 ALTER TABLE configuracion
   ADD COLUMN theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda',
-  ADD COLUMN brand_name VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro',
+  ADD COLUMN brand_name VARCHAR(100) NOT NULL DEFAULT 'Seguridad',
   ADD COLUMN brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
   ADD COLUMN hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.',
   ADD COLUMN hero_description TEXT NULL,

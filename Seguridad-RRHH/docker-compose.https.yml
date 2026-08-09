@@ -1,0 +1,22 @@
+services:
+  frontend:
+    ports: !reset []
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      HTTPS_DOMAIN: ${HTTPS_DOMAIN:?Configura HTTPS_DOMAIN en .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks: [guardiapro]
+volumes:
+  caddy_data:
+  caddy_config:
