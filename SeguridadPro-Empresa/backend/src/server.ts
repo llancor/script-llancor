@@ -7,6 +7,7 @@ import { databaseAdmin } from './database-admin.js';
 import { processRrhhNotifications,rrhh } from './rrhh.js';
 import { validateShifts } from './shift-rules.js';
 import { empresas } from './empresas.js';
+import { miEmpresa } from './mi-empresa.js';
 const app=express();const server=createServer(app);const io=new Server(server,{cors:{origin:process.env.FRONTEND_URL}});app.set('io',io);
 app.use(helmet());app.use(cors({origin:process.env.FRONTEND_URL}));app.use(express.json({limit:'50mb'}));app.use(morgan('dev'));app.use('/api/auth',rateLimit({windowMs:60_000,limit:30}),authRoutes);
 app.get('/api/health',(req,res)=>res.json({status:'ok'}));
@@ -25,6 +26,7 @@ app.get('/api/lookups/guardias',auth,asyncHandler(async(req,res)=>{const limited
 app.use('/api/users',auth,asyncHandler(async(req,res,next)=>{if(req.user!.role!=='superadmin'&&req.method!=='GET'){req.body.empresa_id=req.user!.empresa_id;if(req.body.role==='superadmin')req.body.role='admin';if(req.method==='POST'&&req.path==='/invite'){const company=await db.empresa.findUniqueOrThrow({where:{id:req.user!.empresa_id!}});if(company.limite_usuarios&&await db.user.count({where:{empresa_id:company.id}})>=company.limite_usuarios)return res.status(409).json({message:'La empresa alcanzó el límite de usuarios'})}}next()}));
 app.get('/api/users',auth,admin,asyncHandler(async(req,res)=>res.json((await db.user.findMany({where:req.user!.role==='superadmin'?{}:{empresa_id:req.user!.empresa_id},orderBy:{created_at:'desc'}})).map(publicUser))));
 app.use('/api/empresas',auth,empresas);
+app.use('/api/mi-empresa',auth,miEmpresa);
 app.get('/api/audit',auth,admin,asyncHandler(async(req,res)=>{const limit=Math.min(500,Math.max(1,Number(req.query.limit||100)));res.json(await db.auditLog.findMany({take:limit,orderBy:{created_at:'desc'},include:{user:{select:{full_name:true,email:true}}}}))}));
 app.post('/api/users/invite',auth,admin,asyncHandler(async(req,res)=>{const {password,send_invitation,...data}=req.body;if(!password||password.length<8)return res.status(400).json({message:'La contraseña debe tener al menos 8 caracteres'});const user=await db.user.create({data:{...data,password:await bcrypt.hash(password,12),email_verified:true,enabled:data.enabled??true,must_change_password:true}});if(send_invitation)await sendEmail(user.email,'Cuenta creada en Seguridad-RRHH',`Tu cuenta fue creada. Ingresa con ${user.email} y la contraseña proporcionada por el administrador. Deberás cambiarla al ingresar.`);res.status(201).json(publicUser(user));}));
 app.put('/api/users/:id',auth,admin,asyncHandler(async(req,res)=>{const allowed=['full_name','email','role','rango','telefono','cargo','permisos','enabled'];const data=Object.fromEntries(Object.entries(req.body).filter(([key])=>allowed.includes(key)));res.json(publicUser(await db.user.update({where:{id:req.params.id},data})));}));
@@ -71,6 +73,9 @@ async function migrateCompatibility(){
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB`);
   await db.$executeRawUnsafe(`INSERT IGNORE INTO empresas (id,nombre,slug,modulos) VALUES ('empresa-principal','Empresa principal','principal',JSON_OBJECT('guardias',true,'turnos',true,'relevos',true,'rondas',true,'recintos',true,'entradas',true,'reportes',true,'alertas',true,'rrhh',true,'usuarios',true,'configuracion',true))`);
+  const empresaColumns=await existing('empresas');
+  const empresaDefinitions:Record<string,string>={website_url:'VARCHAR(500) NULL',descripcion:'TEXT NULL',servicios:'TEXT NULL',quote_email:'VARCHAR(191) NULL',public_page_enabled:'BOOLEAN NOT NULL DEFAULT FALSE'};
+  for(const [column,definition] of Object.entries(empresaDefinitions))if(!empresaColumns.has(column))await db.$executeRawUnsafe(`ALTER TABLE empresas ADD COLUMN ${column} ${definition}`);
   await db.$executeRawUnsafe("ALTER TABLE users MODIFY COLUMN role ENUM('superadmin','admin','jefe_turno','guardia','establecimiento') NOT NULL DEFAULT 'guardia'");
   const userColumns=await existing('users');
   if(!userColumns.has('enabled'))await db.$executeRawUnsafe('ALTER TABLE users ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified');

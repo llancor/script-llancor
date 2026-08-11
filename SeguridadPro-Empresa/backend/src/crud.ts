@@ -27,16 +27,10 @@ const normalize=(model:string,body:any,updating=false)=>{
     };
     for(const [field,value] of Object.entries(defaults[model]||{}))if(!data[field])data[field]=value;
   }
-  const connect=(idField:string,relation:string)=>{
-    if(!(idField in data))return;
-    const id=data[idField];
-    delete data[idField];
-    if(id)data[relation]={connect:{id}};
-    else if(updating)data[relation]={disconnect:true};
-  };
-  connect('guardia_id','guardia');
-  if(model!=='relevo')connect('recinto_id','recinto');
-  connect('created_by_id','creador');
+  // Las altas incluyen empresa_id, por lo que Prisma usa el input escalar
+  // (UncheckedCreateInput). Mantener también las FK como *_id evita mezclarlo
+  // con relaciones anidadas (creador/guardia/recinto), que no pertenecen a ese
+  // tipo de input. En actualizaciones, null desconecta correctamente la FK.
   // Alerta obtiene el nombre mediante su relación con Guardia; no tiene una
   // columna guardia_nombre en el esquema actual.
   if(model==='alerta')delete data.guardia_nombre;

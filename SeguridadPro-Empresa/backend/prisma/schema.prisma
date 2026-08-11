@@ -147,6 +147,11 @@ model Empresa {
   telefono String?
   direccion String?
   logo_url String? @db.MediumText
+  website_url String?
+  descripcion String? @db.Text
+  servicios String? @db.Text
+  quote_email String?
+  public_page_enabled Boolean @default(false)
   estado EstadoEmpresa @default(Activa)
   modulos Json @default("{}")
   limite_usuarios Int?
