@@ -1,0 +1,1 @@
+declare namespace Express { interface Request { user?: { id:string; role:string; permisos:Record<string,boolean|string>; guardia_id?:string; empresa_id?:string; empresa_modulos?:Record<string,boolean>; must_change_password?:boolean } } }
