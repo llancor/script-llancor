@@ -1,16 +1,16 @@
-Este proyecto se llama GuardiaPro-beta.
+Este proyecto se llama Seguridad-RRHH-beta.
 
 Es un monorepo:
 - backend: Express, TypeScript, Prisma y MySQL.
 - frontend: React, TypeScript, Vite, Tailwind y Leaflet.
 - despliegue: Docker Compose en Debian.
-- instalador: Instalar_GuardiaPro_llancor_v3.0.sh.
+- instalador: Instalar_Seguridad-RRHH_llancor_v3.0.sh.
 
 El instalador clona:
 https://github.com/llancor/script-llancor.git
 
 Y utiliza:
-PROJECT_SUBDIR="GuardiaPro-beta"
+PROJECT_SUBDIR="Seguridad-RRHH-beta"
 
 Funciones recientes:
 - Administración de usuarios.

@@ -60,7 +60,7 @@ export default function Rondas(){
   const start=async()=>{
     if(!selected)return alert('Selecciona o crea una ronda');
     if(selected.estado==='Completada')return setGpsMessage('Esta ronda ya está completada. Crea o selecciona una ronda pendiente.');
-    if(!window.isSecureContext)return setGpsMessage('El GPS requiere acceso mediante HTTPS. Abre GuardiaPro con un dominio seguro para iniciar el seguimiento.');
+    if(!window.isSecureContext)return setGpsMessage('El GPS requiere acceso mediante HTTPS. Abre Seguridad-RRHH con un dominio seguro para iniciar el seguimiento.');
     if(!navigator.geolocation)return setGpsMessage('Este dispositivo o navegador no ofrece geolocalización.');
     if(tracking||locating)return;
     setLocating(true);setGpsMessage('Activando GPS y obteniendo la ubicación inicial…');

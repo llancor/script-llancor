@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS guardiapro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE guardiapro;
+CREATE DATABASE IF NOT EXISTS seguridad_rrhh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE users (

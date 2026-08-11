@@ -26,6 +26,8 @@ export async function sendEmail(to:string, subject:string, text:string){
 export async function sendTelegram(text:string){
   const config=await db.configuracion.findUnique({where:{id:1}});
   if(!config?.telegram_enabled||!config.telegram_bot_token||!config.telegram_chat_id)return;
-  const response=await fetch(`https://api.telegram.org/bot${config.telegram_bot_token}/sendMessage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:config.telegram_chat_id,text,parse_mode:'HTML'})});
+  const escapeHtml=(value:unknown)=>String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const brand=String(config.brand_name||'Seguridad').trim()||'Seguridad';
+  const response=await fetch(`https://api.telegram.org/bot${config.telegram_bot_token}/sendMessage`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:config.telegram_chat_id,text:`<b>${escapeHtml(brand)}</b>\n${text}`,parse_mode:'HTML'})});
   if(!response.ok)throw new Error(`Telegram respondió ${response.status}`);
 }

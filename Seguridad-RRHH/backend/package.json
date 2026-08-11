@@ -1,5 +1,5 @@
 {
-  "name": "guardiapro-backend",
+  "name": "seguridad-rrhh-backend",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",

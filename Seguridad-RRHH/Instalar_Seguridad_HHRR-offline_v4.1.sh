@@ -198,6 +198,7 @@ preflight(){
 dependencies(){
   title; printf "${B}Instalando dependencias oficiales de Docker...${N}\n\n"
   if has docker && { docker compose version >/dev/null 2>&1 || root docker compose version >/dev/null 2>&1; }; then printf "${G}Docker y Compose ya están instalados.${N}\n"; return; fi
+  root rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources
   root apt-get update || return
   root apt-get install -y ca-certificates curl git openssl || return
   root install -m 0755 -d /etc/apt/keyrings || return
@@ -338,6 +339,86 @@ install_offline(){
   fi
 }
 
+update_offline(){
+  title
+  printf "${C}${B}Actualizar Seguridad RRHH OFFLINE${N}\n\n"
+
+  local source_dir="$SCRIPT_DIR"
+  local chosen backup_env=""
+
+  if [[ ! -f "$source_dir/docker-compose.yml" || ! -d "$source_dir/backend" || ! -d "$source_dir/frontend" ]]; then
+    printf "${R}No se encontró un proyecto válido en la carpeta del instalador:${N}\n"
+    printf "${Y}%s${N}\n\n" "$source_dir"
+    printf "Debes ejecutar este script desde la carpeta que contiene docker-compose.yml, backend/ y frontend/.\n"
+    return 1
+  fi
+
+  if ! has docker; then
+    printf "${R}Docker no está instalado. Ejecuta primero la opción 1.${N}\n"
+    return 1
+  fi
+
+  printf "Ruta instalada a actualizar [${C}%s${N}]: " "$INSTALL_ROOT"
+  read -r chosen </dev/tty
+  chosen="${chosen:-$INSTALL_ROOT}"
+
+  if [[ "$chosen" != /* || "$chosen" == "/" || "$chosen" == "/opt" ]]; then
+    printf "${R}La ruta debe ser absoluta y no puede ser / ni /opt.${N}\n"
+    return 1
+  fi
+
+  INSTALL_ROOT="${chosen%/}"
+  APP_DIR="$INSTALL_ROOT"
+
+  if [[ ! -f "$INSTALL_ROOT/docker-compose.yml" ]]; then
+    printf "${R}No se encontró una instalación válida en %s.${N}\n" "$INSTALL_ROOT"
+    return 1
+  fi
+
+  cd "$APP_DIR" || return 1
+  prepare_env
+  backup_app || { printf "${R}Actualización cancelada: falló el respaldo previo.${N}\n"; return 1; }
+
+  if ! has rsync; then
+    printf "${Y}Instalando rsync...${N}\n"
+    root apt-get update || return 1
+    root apt-get install -y rsync || return 1
+  fi
+
+  if [[ -f "$INSTALL_ROOT/.env" ]]; then
+    backup_env="$(mktemp /tmp/seguridad-env.XXXXXX)" || return 1
+    cp "$INSTALL_ROOT/.env" "$backup_env" || return 1
+  fi
+
+  printf "\n${B}Actualizando archivos desde %s...${N}\n" "$source_dir"
+  if ! rsync -a --delete \
+      --exclude='.env' \
+      --exclude="$(basename "$0")" \
+      "$source_dir/" "$INSTALL_ROOT/"; then
+    [[ -n "$backup_env" ]] && rm -f -- "$backup_env"
+    printf "${R}No fue posible actualizar los archivos locales.${N}\n"
+    return 1
+  fi
+
+  if [[ -n "$backup_env" && -f "$backup_env" ]]; then
+    cp "$backup_env" "$INSTALL_ROOT/.env"
+    rm -f -- "$backup_env"
+  fi
+
+  cd "$APP_DIR" || return 1
+  prepare_env
+
+  printf "\n${B}Reconstruyendo y reiniciando servicios sin borrar los datos...${N}\n"
+  if dc up -d --build --remove-orphans; then
+    printf "${G}Actualización OFFLINE terminada correctamente. La base de datos y configuración se conservaron.${N}\n"
+    dc ps
+    show_url
+  else
+    printf "${R}La actualización offline falló. Revisa los registros desde el menú de estado.${N}\n"
+    return 1
+  fi
+}
+
 services(){
   while true; do title; printf "${C}${B}Estado y control del servicio${N}\n\n${Y}1)${C} Ver estado${N}\n${Y}2)${C} Iniciar${N}\n${Y}3)${C} Detener${N}\n${Y}4)${C} Reiniciar${N}\n${Y}5)${C} Ver registros${N}\n${Y}6)${C} Volver${N}\n\n"; read -rp 'Opción: ' o
     case "$o" in 1) dc ps; pause;; 2) dc up -d; pause;; 3) dc stop; pause;; 4) dc restart; pause;; 5) dc logs --tail=150; pause;; 6) return;; *) printf "${R}Opción inválida.${N}\n"; sleep 1;; esac
@@ -416,7 +497,7 @@ restore_app(){
 
 update_app(){
   title
-  printf "${C}${B}Actualizar SeguridPro con el módulo RRHH${N}\n\n"
+  printf "${C}${B}Actualizar Seguridad RRHH desde GitHub${N}\n\n"
 
   if [[ ! -f "$INSTALL_ROOT/docker-compose.yml" ]]; then
     printf "${R}No se encontró una instalación válida en $INSTALL_ROOT.${N}\n"
@@ -445,9 +526,20 @@ update_app(){
 
 uninstall_app(){
   title
-  printf "${C}${B}Desinstalacion completa de SeguridPro${N}\n\n"
-  printf "${R}Se eliminaran contenedores, imagenes, red, volumen MySQL y todos los archivos de esta instancia.${N}\n\n"
-  local confirmation target
+  printf "${C}${B}Desinstalacion completa de Seguridad RRHH${N}\n\n"
+  printf "${R}Se eliminaran contenedores, imagenes, red y volumen MySQL de esta instancia.${N}\n"
+  printf "${Y}La carpeta fuente donde está este script se conservará siempre.${N}\n\n"
+  local confirmation target script_source default_target chosen
+  script_source="$(realpath -m "$SCRIPT_DIR")"
+  default_target="$INSTALL_ROOT"
+  if [[ "$(realpath -m "$default_target")" == "$script_source" && -f "$DEFAULT_INSTALL_ROOT/docker-compose.yml" ]]; then
+    default_target="$DEFAULT_INSTALL_ROOT"
+  fi
+  printf "Ruta de instalación a desinstalar [${C}%s${N}]: " "$default_target"
+  read -r chosen </dev/tty
+  chosen="${chosen:-$default_target}"
+  INSTALL_ROOT="${chosen%/}"
+  APP_DIR="$INSTALL_ROOT"
   read -rp 'Escribe ELIMINAR TODO para continuar: ' confirmation
   [[ "$confirmation" == 'ELIMINAR TODO' ]] || { printf 'Operacion cancelada.\n'; return; }
   target="$(realpath -m "$INSTALL_ROOT")"
@@ -455,6 +547,11 @@ uninstall_app(){
     /opt/*|/root/*|/home/*/*)
       [[ -f "$target/docker-compose.yml" ]] || { printf "${R}No se encontro una instalacion valida en $target.${N}\n"; return; }
       dc down -v --rmi local --remove-orphans || return
+      if [[ "$target" == "$script_source" ]]; then
+        printf "${Y}No se borraron los archivos porque la instalación coincide con la carpeta del instalador: %s${N}\n" "$script_source"
+        printf "${G}Contenedores, imágenes locales y volumen MySQL eliminados.${N}\n"
+        return
+      fi
       cd / || return
       root rm -rf -- "$target"
       printf "${R}La instancia completa fue eliminada permanentemente.${N}\n"
@@ -482,6 +579,7 @@ while true; do
   printf "  ${Y}11)${Y} Actualizar Seguridad RRHH desde GitHub${N}\n"
   printf "  ${Y}12)${C} Crear respaldo${N}\n"
   printf "  ${Y}13)${C} Restaurar respaldo${N}\n"
+  printf "  ${Y}14)${Y} Actualizar offline desde esta carpeta${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
   read -rp 'Selecciona una opción: ' o </dev/tty
   case "$o" in
@@ -498,6 +596,7 @@ while true; do
     11) update_app; pause;;
     12) backup_app; pause;;
     13) restore_app; pause;;
+    14) update_offline; pause;;
     0) exit 0;;
     *) printf "${R}Opción inválida.${N}\n"; sleep 1;;
   esac

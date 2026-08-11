@@ -1,4 +1,4 @@
-USE guardiapro;
+USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 INSERT INTO configuracion (id,permitir_registro_publico) VALUES (1,true) ON DUPLICATE KEY UPDATE permitir_registro_publico=VALUES(permitir_registro_publico);
 INSERT INTO recintos (id,nombre,direccion,tipo,encargado,estado,created_by_id) VALUES

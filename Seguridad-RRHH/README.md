@@ -1,4 +1,4 @@
-# GuardiaPro
+# Seguridad-RRHH
 
 Monorepo para gestión integral de seguridad física.
 
@@ -36,7 +36,7 @@ chmod +x Instalar_Seguridad_HHRR_v4.1.sh
 ./Instalar_Seguridad_HHRR_v4.1.sh
 ```
 
-Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar GuardiaPro** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
+Permite instalar Docker, desplegar y actualizar Seguridad-RRHH, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar Seguridad-RRHH** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
 
 ### Instalación desde la carpeta local
 
@@ -66,7 +66,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\Instalar_Seguridad_HHRR_v4.1.ps1
 ```
 
-El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.
+El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar Seguridad-RRHH y administrar servicios, puertos y usuarios.
 
 ## Estructura
 

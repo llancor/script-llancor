@@ -1,4 +1,4 @@
-USE guardiapro;
+USE seguridad_rrhh;
 
 -- Prisma modela las horas de turno como texto HH:MM/HH:MM:SS.
 -- MySQL convierte automáticamente los valores TIME existentes sin perderlos.

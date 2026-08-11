@@ -3,8 +3,8 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: guardiapro
-      MYSQL_USER: guardiapro
+      MYSQL_DATABASE: seguridad_rrhh
+      MYSQL_USER: seguridad_rrhh
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cambia-esta-clave}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cambia-esta-clave-root}
     volumes:
@@ -16,7 +16,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
   backend:
     build:
@@ -26,7 +26,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: mysql://guardiapro:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/guardiapro
+      DATABASE_URL: mysql://seguridad_rrhh:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/seguridad_rrhh
       JWT_SECRET: ${JWT_SECRET:-reemplaza-esta-clave-jwt}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@seguridad.cl}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
@@ -46,7 +46,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
   frontend:
     build:
@@ -58,11 +58,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
 volumes:
   mysql_data:
 
 networks:
-  guardiapro:
+  seguridad-rrhh:
     driver: bridge

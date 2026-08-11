@@ -16,7 +16,7 @@ services:
     depends_on:
       frontend:
         condition: service_healthy
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 volumes:
   caddy_data:
   caddy_config:

@@ -6,7 +6,7 @@ COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY backend backend
-RUN pnpm --filter guardiapro-backend exec prisma generate && pnpm --filter guardiapro-backend test && pnpm --filter guardiapro-backend build
+RUN pnpm --filter seguridad-rrhh-backend exec prisma generate && pnpm --filter seguridad-rrhh-backend test && pnpm --filter seguridad-rrhh-backend build
 
 FROM node:22-alpine AS runtime
 WORKDIR /app

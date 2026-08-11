@@ -1,4 +1,4 @@
-USE guardiapro;
+USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- Repara los datos demostrativos si fueron importados por un cliente latin1.

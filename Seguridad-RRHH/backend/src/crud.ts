@@ -76,7 +76,7 @@ async function notifyCreated(model:string,item:any){
   const details=lines.join('\n');
   const destination=config.notification_email||config.smtp_user||process.env.SMTP_USER;
   if((isAlert?config.alert_email_enabled:config.report_email_enabled)&&destination){
-    await sendEmail(destination,`${label} GuardiaPro: ${item.titulo}`,details);
+    await sendEmail(destination,`${label} Seguridad-RRHH: ${item.titulo}`,details);
   }
   if(isAlert?config.alert_telegram_enabled:config.report_telegram_enabled){
     const escapeHtml=(value:unknown)=>String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -100,7 +100,7 @@ crud.post('/:model',asyncHandler(async(req,res)=>{
       await transaction.user.create({data:{full_name:guardia.nombre,email,password:await bcrypt.hash(password,12),role:'guardia',rango:guardia.rango,telefono:guardia.telefono,permisos,guardia_id:guardia.id,foto_url:guardia.foto_url,email_verified:true,enabled:true,must_change_password:true}});
       return guardia;
     });
-    if(req.body.enviar_invitacion)sendEmail(email,'Acceso creado en GuardiaPro',`Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error=>console.error('No se pudo enviar la invitación:',error));
+    if(req.body.enviar_invitacion)sendEmail(email,'Acceso creado en Seguridad-RRHH',`Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error=>console.error('No se pudo enviar la invitación:',error));
     req.app.get('io')?.emit('guardia:created',item);return res.status(201).json(item);
   }
   if(req.params.model==='turno'&&req.body.guardia_id)await validateShifts(req.body.guardia_id,[{fecha:new Date(req.body.fecha),hora_inicio:req.body.hora_inicio,hora_fin:req.body.hora_fin}]);
