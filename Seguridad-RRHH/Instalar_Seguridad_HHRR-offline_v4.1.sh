@@ -73,6 +73,34 @@ dc(){
 
 project_ready(){ [[ -f "$APP_DIR/docker-compose.yml" && -d "$APP_DIR/backend" && -d "$APP_DIR/frontend" ]]; }
 
+adopt_existing_compose_project(){
+  local configured project working_dir frontend_id app_path published_port ports
+  configured="$(getenv COMPOSE_PROJECT_NAME "$(instance_name "$INSTALL_ROOT")")"
+  app_path="$(realpath -m "$APP_DIR")"
+  published_port="$(getenv HTTP_PORT "$DEFAULT_HTTP_PORT")"
+  while IFS='|' read -r project ports; do
+    [[ -n "$project" && "$ports" == *":${published_port}->"* ]] || continue
+    if [[ "$project" != "$configured" ]]; then
+      setenv COMPOSE_PROJECT_NAME "$project"
+      printf "${Y}Se detectó por el puerto %s y reutilizará la instancia Docker existente: %s${N}\n" "$published_port" "$project"
+    fi
+    return 0
+  done < <(if docker info >/dev/null 2>&1; then docker ps --filter 'label=com.docker.compose.service=frontend' --format '{{.Label "com.docker.compose.project"}}|{{.Ports}}'; else root docker ps --filter 'label=com.docker.compose.service=frontend' --format '{{.Label "com.docker.compose.project"}}|{{.Ports}}'; fi)
+  while IFS='|' read -r project working_dir; do
+    [[ -n "$project" && "$(realpath -m "$working_dir")" == "$app_path" ]] || continue
+    if docker info >/dev/null 2>&1; then
+      frontend_id="$(docker ps -aq --filter "label=com.docker.compose.project=$project" --filter 'label=com.docker.compose.service=frontend' | head -n1)"
+    else
+      frontend_id="$(root docker ps -aq --filter "label=com.docker.compose.project=$project" --filter 'label=com.docker.compose.service=frontend' | head -n1)"
+    fi
+    if [[ -n "$frontend_id" && "$project" != "$configured" ]]; then
+      setenv COMPOSE_PROJECT_NAME "$project"
+      printf "${Y}Se detectó y reutilizará la instancia Docker existente: %s${N}\n" "$project"
+      return 0
+    fi
+  done < <(if docker info >/dev/null 2>&1; then docker ps -a --format '{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.project.working_dir"}}'; else root docker ps -a --format '{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.project.working_dir"}}'; fi)
+}
+
 configure_sparse_checkout(){
   local repository_root="$1"
   git -C "$repository_root" sparse-checkout init --cone || return 1
@@ -478,9 +506,39 @@ show_initial_credentials(){
 backup_app(){
   project_ready || { printf "${R}No se encontró una instalación válida en $APP_DIR.${N}\n"; return 1; }
   cd "$APP_DIR" || return 1; prepare_env
-  local backup_dir="${SEGURIDAD_BACKUP_DIR:-${INSTALL_ROOT}-backups}" stamp file
+  adopt_existing_compose_project
+  local backup_dir="${SEGURIDAD_BACKUP_DIR:-${INSTALL_ROOT}-backups}" stamp file attempt auth_mode="" database_url="" backup_user="" backup_password="" backup_database=""
+  printf "${B}Preparando la base de datos para el respaldo...${N}\n"
+  dc up -d db || { printf "${R}No fue posible iniciar el servicio de base de datos.${N}\n"; return 1; }
+  database_url="$(dc exec -T backend printenv DATABASE_URL 2>/dev/null | tr -d '\r' || true)"
+  if [[ "$database_url" =~ ^mysql://([^:]+):([^@]+)@[^/]+/(.+)$ ]]; then
+    backup_user="${BASH_REMATCH[1]}"; backup_password="${BASH_REMATCH[2]}"; backup_database="${BASH_REMATCH[3]%%\?*}"
+  fi
+  for attempt in {1..30}; do
+    if dc exec -T db sh -c 'mysql -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" -Nse "SELECT 1"' >/dev/null 2>&1; then auth_mode="root"; break; fi
+    if dc exec -T db sh -c 'mysql -h 127.0.0.1 -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -Nse "SELECT 1"' >/dev/null 2>&1; then auth_mode="app"; break; fi
+    if [[ -n "$backup_user" ]] && dc exec -T -e BACKUP_USER="$backup_user" -e BACKUP_PASSWORD="$backup_password" -e BACKUP_DATABASE="$backup_database" db sh -c 'mysql -h 127.0.0.1 -u"$BACKUP_USER" -p"$BACKUP_PASSWORD" "$BACKUP_DATABASE" -Nse "SELECT 1"' >/dev/null 2>&1; then auth_mode="backend"; break; fi
+    sleep 2
+  done
+  if [[ -z "$auth_mode" ]]; then
+    printf "${R}MySQL respondió, pero ninguna credencial disponible coincide con la base instalada.${N}\n"
+    printf "${Y}Revisa DATABASE_URL del backend y las variables MYSQL_ROOT_PASSWORD, MYSQL_USER y MYSQL_PASSWORD.${N}\n"
+    return 1
+  fi
+  if [[ "$auth_mode" == "backend" ]]; then
+    setenv MYSQL_PASSWORD "$backup_password"
+    printf "${G}La contraseña operativa de MySQL fue recuperada del backend y sincronizada en .env.${N}\n"
+  fi
   stamp="$(date +%Y%m%d-%H%M%S)"; file="$backup_dir/seguridad-$stamp.sql.gz"; mkdir -p "$backup_dir" || return 1
-  dc exec -T db sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers "$MYSQL_DATABASE"' | gzip -9 >"$file" || { rm -f "$file"; return 1; }
+  if [[ "$auth_mode" == "root" ]]; then
+    dc exec -T db sh -c 'exec mysqldump -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE"' | gzip -9 >"$file" || { rm -f "$file"; return 1; }
+  elif [[ "$auth_mode" == "app" ]]; then
+    printf "${Y}La contraseña root histórica no coincide; el respaldo usará el usuario operativo de la aplicación.${N}\n"
+    dc exec -T db sh -c 'exec mysqldump -h 127.0.0.1 -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE"' | gzip -9 >"$file" || { rm -f "$file"; return 1; }
+  else
+    printf "${Y}El respaldo usará las credenciales verificadas del backend activo.${N}\n"
+    dc exec -T -e BACKUP_USER="$backup_user" -e BACKUP_PASSWORD="$backup_password" -e BACKUP_DATABASE="$backup_database" db sh -c 'exec mysqldump -h 127.0.0.1 -u"$BACKUP_USER" -p"$BACKUP_PASSWORD" --single-transaction --routines --triggers --no-tablespaces "$BACKUP_DATABASE"' | gzip -9 >"$file" || { rm -f "$file"; return 1; }
+  fi
   cp -p .env "$backup_dir/seguridad-$stamp.env"; chmod 600 "$file" "$backup_dir/seguridad-$stamp.env"
   printf "${G}Respaldo completado: %s${N}\n" "$file"
 }
