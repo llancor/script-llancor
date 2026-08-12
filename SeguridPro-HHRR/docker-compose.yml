@@ -3,8 +3,8 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: guardiapro
-      MYSQL_USER: guardiapro
+      MYSQL_DATABASE: seguridad_rrhh
+      MYSQL_USER: seguridad_rrhh
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cambia-esta-clave}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cambia-esta-clave-root}
     volumes:
@@ -12,11 +12,11 @@ services:
       - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./backend/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      test: ["CMD-SHELL", "mysql -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD $$MYSQL_DATABASE -Nse 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
   backend:
     build:
@@ -26,15 +26,17 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: mysql://guardiapro:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/guardiapro
+      DATABASE_URL: mysql://seguridad_rrhh:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/seguridad_rrhh
       JWT_SECRET: ${JWT_SECRET:-reemplaza-esta-clave-jwt}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@seguridad.cl}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       FRONTEND_URL: ${APP_URL:-http://localhost}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      MAIL_FROM: ${MAIL_FROM:-GuardiaPro <no-reply@guardiapro.local>}
+      MAIL_FROM: ${MAIL_FROM:-Seguridad <no-reply@seguridad.local>}
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +46,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
   frontend:
     build:
@@ -56,11 +58,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks: [guardiapro]
+    networks: [seguridad-rrhh]
 
 volumes:
   mysql_data:
 
 networks:
-  guardiapro:
+  seguridad-rrhh:
     driver: bridge

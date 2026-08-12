@@ -107,6 +107,9 @@ model User {
   email_verified Boolean @default(false)
   google_id String? @unique
   enabled Boolean @default(true)
+  failed_login_attempts Int @default(0)
+  locked_until DateTime?
+  last_login_at DateTime?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
   guardias_creados Guardia[] @relation("GuardiaCreator")
@@ -121,7 +124,39 @@ model User {
   trabajadores_creados Trabajador[] @relation("TrabajadorCreator")
   eventos_rrhh_creados EventoRRHH[] @relation("EventoRRHHCreator")
   amonestaciones_creadas Amonestacion[] @relation("AmonestacionCreator")
+  sessions Session[]
+  audit_logs AuditLog[]
   @@map("users")
+}
+
+model Session {
+  id String @id @default(cuid())
+  user_id String
+  expires_at DateTime
+  revoked_at DateTime?
+  ip_address String?
+  user_agent String? @db.Text
+  created_at DateTime @default(now())
+  user User @relation(fields:[user_id],references:[id],onDelete:Cascade)
+  @@index([user_id,revoked_at])
+  @@index([expires_at])
+  @@map("sessions")
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+  user_id String?
+  action String
+  entity String?
+  entity_id String?
+  detail Json?
+  ip_address String?
+  user_agent String? @db.Text
+  created_at DateTime @default(now())
+  user User? @relation(fields:[user_id],references:[id],onDelete:SetNull)
+  @@index([user_id,created_at])
+  @@index([action,created_at])
+  @@map("audit_logs")
 }
 
 model Guardia {
@@ -184,6 +219,7 @@ model Turno {
   fecha DateTime
   hora_inicio String
   hora_fin String
+  horas_colacion Float @default(0)
   ubicacion String?
   observaciones String?
   estado EstadoTurno @default(Programado)
@@ -331,6 +367,15 @@ model Relevo {
 model Configuracion {
   id Int @id @default(1)
   permitir_registro_publico Boolean @default(false)
+  login_max_attempts Int @default(5)
+  login_lock_minutes Int @default(15)
+  login_ban_email_enabled Boolean @default(false)
+  login_ban_telegram_enabled Boolean @default(false)
+  nextcloud_enabled Boolean @default(false)
+  nextcloud_url String?
+  nextcloud_user String?
+  nextcloud_password String?
+  nextcloud_folder String @default("Seguridad-RRHH")
   smtp_host String?
   smtp_port Int @default(587)
   smtp_secure Boolean @default(false)
@@ -351,13 +396,17 @@ model Configuracion {
   time_format String @default("24h")
   turno_dia_inicio String @default("08:00")
   turno_dia_fin String @default("20:00")
+  turno_manana_inicio String @default("08:00")
+  turno_manana_fin String @default("16:00")
+  turno_tarde_inicio String @default("16:00")
+  turno_tarde_fin String @default("00:00")
   turno_noche_inicio String @default("20:00")
   turno_noche_fin String @default("08:00")
   turno_dia_color String @default("#f59e0b")
   turno_noche_color String @default("#2563eb")
   turno_personalizado_color String @default("#7c3aed")
   theme String @default("esmeralda")
-  brand_name String @default("GuardiaPro")
+  brand_name String @default("Seguridad")
   brand_subtitle String @default("Centro de operaciones")
   hero_title String @default("Seguridad conectada, decisiones claras.")
   hero_description String? @db.Text
@@ -444,7 +493,12 @@ model EventoRRHH {
   entidad String?
   folio String?
   archivo_url String? @db.MediumText
+  archivo_cloud_path String?
   confidencial Boolean @default(false)
+  notificar_email Boolean @default(false)
+  notificar_telegram Boolean @default(false)
+  inicio_notificado_at DateTime?
+  termino_notificado_at DateTime?
   created_by_id String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

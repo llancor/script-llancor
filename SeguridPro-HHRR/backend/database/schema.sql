@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS guardiapro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE guardiapro;
+CREATE DATABASE IF NOT EXISTS seguridad_rrhh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE users (
@@ -43,7 +43,7 @@ CREATE TABLE guardias (
 
 CREATE TABLE turnos (
   id VARCHAR(30) PRIMARY KEY, guardia_id VARCHAR(30) NULL, guardia_nombre VARCHAR(150) NOT NULL,
-  tipo_turno ENUM('Manana','Tarde','Dia','Noche','Personalizado') NOT NULL, fecha DATE NOT NULL, hora_inicio VARCHAR(8) NOT NULL, hora_fin VARCHAR(8) NOT NULL,
+  tipo_turno ENUM('Manana','Tarde','Dia','Noche','Personalizado') NOT NULL, fecha DATE NOT NULL, hora_inicio VARCHAR(8) NOT NULL, hora_fin VARCHAR(8) NOT NULL, horas_colacion DECIMAL(4,2) NOT NULL DEFAULT 0,
   ubicacion VARCHAR(255), observaciones TEXT, estado ENUM('Programado','En_curso','Completado','Cancelado') NOT NULL DEFAULT 'Programado',
   recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150), created_by_id VARCHAR(30) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -126,7 +126,7 @@ CREATE TABLE configuracion (
   turno_dia_inicio VARCHAR(8) NOT NULL DEFAULT '08:00', turno_dia_fin VARCHAR(8) NOT NULL DEFAULT '20:00',
   turno_noche_inicio VARCHAR(8) NOT NULL DEFAULT '20:00', turno_noche_fin VARCHAR(8) NOT NULL DEFAULT '08:00',
   turno_dia_color VARCHAR(20) NOT NULL DEFAULT '#f59e0b', turno_noche_color VARCHAR(20) NOT NULL DEFAULT '#2563eb', turno_personalizado_color VARCHAR(20) NOT NULL DEFAULT '#7c3aed',
-  theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'GuardiaPro',
+  theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'Seguridad',
   brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
   hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.', hero_description TEXT,
   hero_footer VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.',

@@ -1,4 +1,4 @@
-USE guardiapro;
+USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE AFTER email_verified;

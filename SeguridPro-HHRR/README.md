@@ -1,4 +1,4 @@
-# GuardiaPro
+# Seguridad-RRHH
 
 Monorepo para gestión integral de seguridad física.
 
@@ -12,7 +12,7 @@ Monorepo para gestión integral de seguridad física.
 
 La web queda en `http://localhost:5173` y la API en `http://localhost:4000/api`.
 
-Usuario inicial del seed: `admin@seguridpro.cl` / `SeguridPro2026!`.
+Usuario inicial del seed: `admin@seguridad.cl` / `SeguridPro2026!`.
 
 ## Despliegue en Debian con Docker
 
@@ -32,17 +32,30 @@ Para producción con dominio, sitúa un proxy TLS (Caddy, Traefik o Nginx) delan
 ### Menú de administración para Debian
 
 ```bash
-chmod +x Instalar_GuardiaPro_llancor_v3.0.sh
-./Instalar_GuardiaPro_llancor_v3.0.sh
+chmod +x Instalar_Seguridad_HHRR_v4.1.sh
+./Instalar_Seguridad_HHRR_v4.1.sh
 ```
 
-Permite instalar Docker, desplegar y actualizar GuardiaPro, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar GuardiaPro** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
+Permite instalar Docker, desplegar y actualizar Seguridad-RRHH, consultar/iniciar/detener/reiniciar servicios, cambiar el puerto, mostrar la URL, restablecer contraseñas y desinstalar conservando o eliminando la base de datos. La opción **Actualizar Seguridad-RRHH** descarga los cambios de GitHub y reconstruye los servicios sin eliminar el volumen MySQL.
 
-El archivo también funciona de manera autónoma: si se copia solo `Instalar_GuardiaPro_llancor_v3.0.sh` a un Debian, la opción **Instalar Control de Seguridad** clona automáticamente `https://github.com/llancor/script-llancor.git` en `/opt/guardiapro` y utiliza la carpeta `GuardiaPro-beta`. La ubicación puede cambiarse definiendo `GUARDIAPRO_INSTALL_DIR` antes de ejecutar el script.
+### Instalación desde la carpeta local
 
-Cuando el repositorio ya existe, el instalador ejecuta `git pull --ff-only` antes de construir para utilizar siempre el código y los Dockerfiles más recientes.
+Para instalar el proyecto sin descargar su código desde GitHub, copia **la carpeta completa** al servidor (no solamente el script) y ejecuta:
 
-La desinstalación completa elimina los contenedores, imágenes locales, volumen MySQL y `/opt/guardiapro` después de exigir la confirmación literal `ELIMINAR TODO`. Docker Engine se conserva para no afectar otros proyectos.
+```bash
+chmod +x Instalar_Seguridad_HHRR-offline_v4.1.sh
+./Instalar_Seguridad_HHRR-offline_v4.1.sh
+```
+
+Selecciona la opción **3) Instalar offline desde esta carpeta**. El script copia el proyecto local a `/opt/seguridad-rrhh`, genera secretos, conserva un `.env` existente y construye los contenedores en el puerto `8082` por defecto.
+
+Esta modalidad evita descargar el código fuente, pero para una instalación completamente desconectada el servidor debe tener previamente Docker Engine, Docker Compose, `rsync` y `openssl`, además de las imágenes `mysql:8.4`, `node:22-alpine` y `nginx:1.27-alpine` y las dependencias de pnpm disponibles en la caché de construcción. La opción **1) Instalar dependencias** y una primera construcción sin caché requieren Internet.
+
+El archivo también funciona de manera autónoma: si se copia solo `Instalar_Seguridad_HHRR_v4.1.sh` a un Debian, la opción **Instalar o migrar a Seguridad RRHH** clona automáticamente `https://github.com/llancor/script-llancor.git`, extrae la carpeta `Seguridad-RRHH` y la instala en `/opt/seguridad-rrhh`. La ubicación puede cambiarse definiendo `SEGURIDAD_INSTALL_DIR` antes de ejecutar el script. El instalador propone el puerto `8082`; una instalación manual con `.env.docker.example` usa `8080`.
+
+Para actualizar una instalación administrada por el menú, usa la opción **Actualizar Seguridad RRHH**. El instalador descarga una copia nueva de `Seguridad-RRHH`, conserva `.env` y reconstruye los servicios sin eliminar el volumen de MySQL.
+
+La desinstalación completa elimina los contenedores, imágenes locales, volumen MySQL y la ruta de instalación elegida después de exigir la confirmación literal `ELIMINAR TODO`. Docker Engine se conserva para no afectar otros proyectos.
 
 ### Instalador para Windows
 
@@ -50,10 +63,10 @@ Abre PowerShell y ejecuta:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\Instalar_SeguridPro_HHRR_v3.0.ps1
+.\Instalar_Seguridad_HHRR_v4.1.ps1
 ```
 
-El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar GuardiaPro y administrar servicios, puertos y usuarios.
+El menú puede instalar Git, WSL 2 y Docker Desktop mediante Winget, descargar el repositorio, desplegar Seguridad-RRHH y administrar servicios, puertos y usuarios.
 
 ## Estructura
 

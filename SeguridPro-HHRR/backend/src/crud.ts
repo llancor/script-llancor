@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { db,sendEmail,sendTelegram } from './lib.js';
+import { audit,db,sendEmail,sendTelegram } from './lib.js';
 import { asyncHandler } from './middleware.js';
+import { validateShifts } from './shift-rules.js';
 const allowed=['guardia','recinto','turno','ronda','entrada','reporte','alerta','relevo'] as const;
 const dateFields:Record<string,string[]>= {guardia:['fecha_ingreso'],turno:['fecha'],ronda:['fecha_hora_inicio','fecha_hora_fin'],entrada:['hora_entrada','hora_salida'],reporte:['fecha'],alerta:['fecha'],relevo:['fecha_hora']};
 const normalize=(model:string,body:any,updating=false)=>{
   const data:any=Object.fromEntries(Object.entries(body).map(([k,v])=>[k,dateFields[model]?.includes(k)&&v?new Date(v as string):v]));
+  // Las respuestas de listado pueden incluir relaciones para mostrarlas en la
+  // interfaz. Nunca deben volver a Prisma como campos editables.
+  for(const field of ['id','usuario','guardia','recinto','creador','created_at','updated_at','created_by'])delete data[field];
   delete data.detalle_evento;
   delete data.detalle_horario;
   delete data.crear_acceso;
@@ -35,10 +39,12 @@ const normalize=(model:string,body:any,updating=false)=>{
   connect('created_by_id','creador');
   // Alerta obtiene el nombre mediante su relación con Guardia; no tiene una
   // columna guardia_nombre en el esquema actual.
+  if(model==='turno'&&'horas_colacion'in data)data.horas_colacion=Math.max(0,Number(data.horas_colacion)||0);
   if(model==='alerta')delete data.guardia_nombre;
   return data;
 };
 export const crud=Router();
+crud.use((req,res,next)=>{res.on('finish',()=>{if(req.method!=='GET'&&res.statusCode<500)audit(`crud_${req.method.toLowerCase()}`,{userId:req.user?.id,entity:req.params.model?String(req.params.model):undefined,entityId:req.params.id?String(req.params.id):undefined,detail:{status:res.statusCode},ip:req.ip,userAgent:req.get('user-agent')})});next()});
 const canSeeAll=(req:any)=>req.user?.role==='admin'||req.user?.permisos?.ver_registros==='todos';
 const protectedActions=['entrada','reporte','alerta'];
 const canEdit=(req:any,model:string)=>req.user?.role==='admin'||!protectedActions.includes(model)||(req.user?.permisos?.[model+'s']===true&&req.user?.permisos?.[`editar_${model}s`]!==false);
@@ -71,7 +77,7 @@ async function notifyCreated(model:string,item:any){
   const details=lines.join('\n');
   const destination=config.notification_email||config.smtp_user||process.env.SMTP_USER;
   if((isAlert?config.alert_email_enabled:config.report_email_enabled)&&destination){
-    await sendEmail(destination,`${label} GuardiaPro: ${item.titulo}`,details);
+    await sendEmail(destination,`${label} Seguridad-RRHH: ${item.titulo}`,details);
   }
   if(isAlert?config.alert_telegram_enabled:config.report_telegram_enabled){
     const escapeHtml=(value:unknown)=>String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -80,7 +86,7 @@ async function notifyCreated(model:string,item:any){
 }
 crud.param('model',(req,res,next,model)=>allowed.includes(model)?next():res.status(404).json({message:'Recurso no encontrado'}));
 crud.use('/:model',(req,res,next)=>{const permission=`${req.params.model}s`;if(req.user?.role==='admin'||req.user?.permisos?.[permission]===true)return next();return res.status(403).json({message:'No tienes permiso para acceder a este módulo'});});
-crud.get('/:model',asyncHandler(async(req,res)=>{const model=req.params.model;const {q,page='1',limit='50',...filters}=req.query as any;const requested:any={};for(const [k,v] of Object.entries(filters))if(v)requested[k]=v;const searchable:Record<string,string[]>={guardia:['nombre','documento'],recinto:['nombre','direccion'],turno:['guardia_nombre','ubicacion'],ronda:['guardia_nombre','novedades'],entrada:['visitante_nombre','visitante_documento'],reporte:['titulo','descripcion'],alerta:['titulo','mensaje'],relevo:['guardia_saliente_nombre','guardia_entrante_nombre','novedades']};if(q)requested.OR=searchable[model].map(f=>({[f]:{contains:q}}));const where={AND:[requested,ownedWhere(req,model)]};const client=(db as any)[model];const [rows,total]=await Promise.all([client.findMany({where,orderBy:{created_at:'desc'},skip:(+page-1)*(+limit),take:+limit,...(model==='alerta'?{include:{guardia:{select:{nombre:true}}}}:{})}),client.count({where})]);const data=model==='alerta'?rows.map((item:any)=>({...item,guardia_nombre:item.guardia?.nombre||null})):rows;res.json({data,total,page:+page});}));
+crud.get('/:model',asyncHandler(async(req,res)=>{const model=req.params.model;const {q,page='1',limit='50',...filters}=req.query as any;const requested:any={};for(const [k,v] of Object.entries(filters))if(v)requested[k]=v;const searchable:Record<string,string[]>={guardia:['nombre','documento'],recinto:['nombre','direccion'],turno:['guardia_nombre','ubicacion'],ronda:['guardia_nombre','novedades'],entrada:['visitante_nombre','visitante_documento'],reporte:['titulo','descripcion'],alerta:['titulo','mensaje'],relevo:['guardia_saliente_nombre','guardia_entrante_nombre','novedades']};if(q)requested.OR=searchable[model].map(f=>({[f]:{contains:q}}));const where={AND:[requested,ownedWhere(req,model)]};const client=(db as any)[model];const relation=model==='alerta'?{include:{guardia:{select:{nombre:true}}}}:model==='guardia'?{include:{usuario:{select:{id:true,email:true,enabled:true}}}}:{};const [rows,total]=await Promise.all([client.findMany({where,orderBy:{created_at:'desc'},skip:(+page-1)*(+limit),take:+limit,...relation}),client.count({where})]);const data=model==='alerta'?rows.map((item:any)=>({...item,guardia_nombre:item.guardia?.nombre||null})):rows;res.json({data,total,page:+page});}));
 crud.get('/:model/:id',asyncHandler(async(req,res)=>{const item=await ensureVisible(req,res);if(item)res.json(item)}));
 crud.post('/:model',asyncHandler(async(req,res)=>{
   if(req.params.model==='relevo'&&req.body.guardia_saliente_id===req.body.guardia_entrante_id)return res.status(400).json({message:'El guardia entrante debe ser diferente del guardia saliente'});
@@ -95,10 +101,11 @@ crud.post('/:model',asyncHandler(async(req,res)=>{
       await transaction.user.create({data:{full_name:guardia.nombre,email,password:await bcrypt.hash(password,12),role:'guardia',rango:guardia.rango,telefono:guardia.telefono,permisos,guardia_id:guardia.id,foto_url:guardia.foto_url,email_verified:true,enabled:true,must_change_password:true}});
       return guardia;
     });
-    if(req.body.enviar_invitacion)sendEmail(email,'Acceso creado en GuardiaPro',`Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error=>console.error('No se pudo enviar la invitación:',error));
+    if(req.body.enviar_invitacion)sendEmail(email,'Acceso creado en Seguridad-RRHH',`Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error=>console.error('No se pudo enviar la invitación:',error));
     req.app.get('io')?.emit('guardia:created',item);return res.status(201).json(item);
   }
+  if(req.params.model==='turno'&&req.body.guardia_id)await validateShifts(req.body.guardia_id,[{fecha:new Date(req.body.fecha),hora_inicio:req.body.hora_inicio,hora_fin:req.body.hora_fin}]);
   const data=normalize(req.params.model,{...req.body,created_by_id:req.user!.id});const item=await (db as any)[req.params.model].create({data});req.app.get('io')?.emit(`${req.params.model}:created`,item);notifyCreated(req.params.model,item).catch(error=>console.error(`No se pudo notificar ${req.params.model}:`,error));res.status(201).json(item);
 }));
-crud.put('/:model/:id',asyncHandler(async(req,res)=>{if(!canEdit(req,req.params.model))return res.status(403).json({message:'No tienes permiso para editar registros de este módulo'});if(!await ensureVisible(req,res,true))return;const input={...req.body};if(req.user?.role==='guardia'&&protectedActions.includes(req.params.model)){delete input.guardia_id;delete input.guardia_nombre}const data=normalize(req.params.model,input,true);delete data.id;delete data.created_at;delete data.updated_at;delete data.created_by_id;const item=await (db as any)[req.params.model].update({where:{id:req.params.id},data});if(req.params.model==='guardia')await db.user.updateMany({where:{guardia_id:item.id},data:{full_name:item.nombre,telefono:item.telefono,rango:item.rango,foto_url:item.foto_url}});req.app.get('io')?.emit(`${req.params.model}:updated`,item);res.json(item);}));
-crud.delete('/:model/:id',asyncHandler(async(req,res)=>{if(!canDelete(req,req.params.model))return res.status(403).json({message:'No tienes permiso para eliminar registros de este módulo'});if(!await ensureVisible(req,res,true))return;await (db as any)[req.params.model].delete({where:{id:req.params.id}});res.status(204).end();}));
+crud.put('/:model/:id',asyncHandler(async(req,res)=>{if(!canEdit(req,req.params.model))return res.status(403).json({message:'No tienes permiso para editar registros de este módulo'});const current=await ensureVisible(req,res,true);if(!current)return;const input={...req.body};if(req.user?.role==='guardia'&&protectedActions.includes(req.params.model)){delete input.guardia_id;delete input.guardia_nombre}if(req.params.model==='turno'){const guardiaId=input.guardia_id||current.guardia_id;if(guardiaId)await validateShifts(guardiaId,[{fecha:new Date(input.fecha||current.fecha),hora_inicio:input.hora_inicio||current.hora_inicio,hora_fin:input.hora_fin||current.hora_fin,horas_colacion:Number(input.horas_colacion??current.horas_colacion??0)}],req.params.id)}const data=normalize(req.params.model,input,true);delete data.created_by_id;const item=await (db as any)[req.params.model].update({where:{id:req.params.id},data});if(req.params.model==='guardia')await db.user.updateMany({where:{guardia_id:item.id},data:{full_name:item.nombre,telefono:item.telefono,rango:item.rango,foto_url:item.foto_url,enabled:item.estado==='Activo'}});req.app.get('io')?.emit(`${req.params.model}:updated`,item);res.json(item);}));
+crud.delete('/:model/:id',asyncHandler(async(req,res)=>{if(!canDelete(req,req.params.model))return res.status(403).json({message:'No tienes permiso para eliminar registros de este módulo'});if(!await ensureVisible(req,res,true))return;if(req.params.model==='guardia'){await db.$transaction(async tx=>{await tx.trabajador.updateMany({where:{guardia_id:req.params.id},data:{guardia_id:null}});await tx.user.updateMany({where:{guardia_id:req.params.id},data:{guardia_id:null,enabled:false}});await tx.guardia.delete({where:{id:req.params.id}})});}else await (db as any)[req.params.model].delete({where:{id:req.params.id}});res.status(204).end();}));
