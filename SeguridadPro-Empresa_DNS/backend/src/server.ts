@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express'; import cors from 'cors'; import helmet from 'helmet'; import morgan from 'morgan';
 import { createServer } from 'http'; import { Server } from 'socket.io'; import rateLimit from 'express-rate-limit'; import bcrypt from 'bcryptjs';
-import authRoutes from './auth.js'; import { crud } from './crud.js'; import { auth,admin,permit,asyncHandler } from './middleware.js'; import { audit,db,encryptSecret,publicUser,sendEmail,sendTelegram } from './lib.js';
+import authRoutes from './auth.js'; import { crud } from './crud.js'; import { auth,admin,permit,asyncHandler,superadmin } from './middleware.js'; import { audit,db,encryptSecret,publicUser,sendEmail,sendTelegram } from './lib.js';
 import { testNextcloud } from './nextcloud.js';
 import { databaseAdmin } from './database-admin.js';
 import { processRrhhNotifications,rrhh } from './rrhh.js';
