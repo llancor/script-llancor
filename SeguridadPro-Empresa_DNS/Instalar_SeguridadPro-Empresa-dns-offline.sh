@@ -5,7 +5,7 @@ REPO_URL="${SEGURIDAD_REPO_URL:-https://github.com/llancor/script-llancor.git}"
 DEFAULT_INSTALL_ROOT="/opt/SeguridadPro-Empresa-dns"
 DEFAULT_HTTP_PORT="8082"
 INSTALL_ROOT="${SEGURIDAD_INSTALL_DIR:-$DEFAULT_INSTALL_ROOT}"
-PROJECT_SUBDIR="SeguridadPro-Empresa_DNS_v5.1"
+PROJECT_SUBDIR="SeguridadPro-Empresa_DNS"
 APP_DIR="$SCRIPT_DIR"
 
 # Si se ejecuta desde una copia instalada, administra esa instancia concreta.
