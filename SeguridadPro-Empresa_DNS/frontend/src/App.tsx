@@ -9,7 +9,7 @@ export default function App(){
   if(!token)return <Suspense fallback={<Loading/>}><Routes><Route path="/login" element={<Login/>}/><Route path="*" element={<Navigate to="/login"/>}/></Routes></Suspense>;
   if(!user)return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm font-semibold text-slate-500">Cargando sesión…</div>;
   if(user?.must_change_password)return <Layout><Suspense fallback={<Loading/>}><Routes><Route path="/perfil" element={<Profile/>}/><Route path="*" element={<Navigate to="/perfil"/>}/></Routes></Suspense></Layout>;
-  const allowed=(module:string)=>user?.role==='superadmin'||(user?.empresa_modulos?.[module]!==false&&(user?.role==='admin'||user?.permisos?.[module]===true));
+  const allowed=(module:string)=>(module==='turnos'&&user?.role==='guardia'&&!!user?.guardia_id)||user?.role==='superadmin'||(user?.empresa_modulos?.[module]!==false&&(user?.role==='admin'||user?.permisos?.[module]===true));
   return <Layout><Suspense fallback={<Loading/>}><Routes>
     <Route path="/" element={<Navigate to={user.role==='superadmin'?'/empresas':'/dashboard'}/>}/><Route path="/login" element={<Navigate to={user.role==='superadmin'?'/empresas':'/dashboard'}/>}/><Route path="/dashboard" element={user.role==='superadmin'?<Navigate to="/empresas"/>:<Dashboard/>}/>
     {['guardias','recintos','entradas','reportes','alertas'].map(module=><Route key={module} path={'/'+module} element={allowed(module)?<CrudPage moduleKey={module}/>:<Navigate to="/dashboard"/>}/>)}
