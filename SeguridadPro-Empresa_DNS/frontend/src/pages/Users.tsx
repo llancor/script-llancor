@@ -4,7 +4,7 @@ import { api, useAuth } from '../state';
 import { Badge, Button, Dialog, PageHead } from '../components';
 
 // Catálogo predeterminado; pueden agregarse nuevos módulos a esta lista.
-const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios','configuracion'];
+const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios'];
 const defaultGuardPermissions = new Set(['relevos','rondas','entradas','reportes','alertas']);
 const protectedModules=[['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
 const roles = [['admin','Administrador'],['jefe_turno','Jefe de turno'],['guardia','Guardia']];

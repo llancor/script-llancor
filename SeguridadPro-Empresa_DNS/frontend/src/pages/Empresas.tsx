@@ -3,7 +3,7 @@ import { Building2,KeyRound,Pencil,Plus,Power,Trash2 } from 'lucide-react';
 import { api } from '../state';
 import { Badge,Button,Dialog,PageHead } from '../components';
 
-const moduleNames=['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios','configuracion'];
+const moduleNames=['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios'];
 const blank=()=>({
   nombre:'',slug:'',rut:'',email:'',telefono:'',estado:'Activa',vence_at:'',limite_usuarios:'',limite_guardias:'',limite_recintos:'',
   modulos:Object.fromEntries(moduleNames.map(name=>[name,true])),admin:{full_name:'',email:'',password:''}

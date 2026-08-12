@@ -1,6 +1,6 @@
 USE seguridad_rrhh;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
-INSERT INTO configuracion (id,permitir_registro_publico) VALUES (1,true) ON DUPLICATE KEY UPDATE permitir_registro_publico=VALUES(permitir_registro_publico);
+INSERT INTO configuracion (id,permitir_registro_publico) VALUES (1,false) ON DUPLICATE KEY UPDATE permitir_registro_publico=false;
 INSERT INTO recintos (id,nombre,direccion,tipo,encargado,estado,created_by_id) VALUES
 ('rec_demo_001','Condominio Parque Norte','Av. Providencia 1840, Santiago','Condominio','Carolina Muñoz','Activo',NULL);
 INSERT INTO guardias (id,nombre,documento,telefono,email,rango,estado,fecha_ingreso,recinto_id,recinto_nombre,created_by_id) VALUES
