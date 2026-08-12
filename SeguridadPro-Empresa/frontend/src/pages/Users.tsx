@@ -4,7 +4,7 @@ import { api, useAuth } from '../state';
 import { Badge, Button, Dialog, PageHead } from '../components';
 
 // Catálogo predeterminado; pueden agregarse nuevos módulos a esta lista.
-const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios','configuracion'];
+const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios'];
 const defaultGuardPermissions = new Set(['relevos','rondas','entradas','reportes','alertas']);
 const protectedModules=[['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
 const roles = [['admin','Administrador'],['jefe_turno','Jefe de turno'],['guardia','Guardia']];
@@ -33,7 +33,7 @@ export default function Users(){
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {items.map(item=><div key={item.id} className="grid gap-2 border-b border-slate-100 p-5 last:border-0 dark:border-slate-800 md:grid-cols-[1.4fr_1.5fr_1fr_1fr_auto] md:items-center">
         <div><b>{item.full_name}</b><p className="text-xs text-slate-500">{item.rango?.replace('_',' ')||'Sin rango'}</p></div><span className="text-sm text-slate-500">{item.email}</span><Badge>{item.role}</Badge><Badge tone={item.enabled?'green':'red'}>{item.enabled?'Habilitado':'Deshabilitado'}</Badge>
-        <div className="flex gap-1"><Icon title="Editar" onClick={()=>begin(item)}><Pencil/></Icon><Icon title="Restablecer contraseña" onClick={()=>reset(item)}><KeyRound/></Icon><Icon title={item.enabled?'Deshabilitar':'Habilitar'} disabled={item.id===user?.id} onClick={()=>toggle(item)}><Power/></Icon><Icon title="Eliminar" disabled={item.id===user?.id} danger onClick={async()=>{if(confirm(`¿Eliminar definitivamente a ${item.full_name}?`)){await api('/users/'+item.id,{method:'DELETE'});load()}}}><Trash2/></Icon></div>
+        <div className="flex gap-1"><Icon title="Editar" onClick={()=>begin(item)}><Pencil/></Icon><Icon title="Restablecer contraseña" onClick={()=>reset(item)}><KeyRound/></Icon><Icon title={item.enabled?'Deshabilitar':'Habilitar'} disabled={item.id===user?.id} onClick={()=>toggle(item)}><Power/></Icon><Icon title="Eliminar" disabled={item.id===user?.id} danger onClick={async()=>{if(!confirm(`¿Eliminar definitivamente a ${item.full_name}? Sus registros se conservarán sin creador asignado.`))return;try{await api('/users/'+item.id,{method:'DELETE'});await load()}catch(reason){alert((reason as Error).message)}}}><Trash2/></Icon></div>
       </div>)}
     </div>
     <Dialog open={open} onClose={()=>setOpen(false)} title={editing?'Editar usuario':'Crear usuario'}>

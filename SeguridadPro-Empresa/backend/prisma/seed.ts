@@ -7,6 +7,6 @@ const main = async () => {
   const password = await bcrypt.hash(initial, 12);
   const email=process.env.INITIAL_ADMIN_EMAIL||'admin@seguridad.cl';
   await db.user.upsert({ where:{email}, update:{role:'superadmin',empresa_id:null,permisos:{empresas:true}}, create:{full_name:'Propietario de la plataforma',email,password,role:'superadmin',email_verified:true,must_change_password:true,permisos:{empresas:true}}});
-  await db.configuracion.upsert({where:{id:1},update:{},create:{id:1,permitir_registro_publico:true}});
+  await db.configuracion.upsert({where:{id:1},update:{permitir_registro_publico:false},create:{id:1,permitir_registro_publico:false}});
 };
 main().finally(()=>db.$disconnect());
