@@ -33,6 +33,7 @@ const normalize=(model:string,body:any,updating=false)=>{
   // tipo de input. En actualizaciones, null desconecta correctamente la FK.
   // Alerta obtiene el nombre mediante su relación con Guardia; no tiene una
   // columna guardia_nombre en el esquema actual.
+  if(model==='turno'&&'horas_colacion'in data)data.horas_colacion=Math.max(0,Number(data.horas_colacion)||0);
   if(model==='alerta')delete data.guardia_nombre;
   return data;
 };

@@ -137,13 +137,11 @@ enum EstadoEmpresa {
   Suspendida
   Eliminada
 }
-
 enum TipoDominio {
   Dominio
   Subdominio
   SubdominioSistema
 }
-
 enum EstadoDominio {
   Pendiente
   Verificando
@@ -308,6 +306,7 @@ model Turno {
   fecha DateTime
   hora_inicio String
   hora_fin String
+  horas_colacion Float @default(0)
   ubicacion String?
   observaciones String?
   estado EstadoTurno @default(Programado)
