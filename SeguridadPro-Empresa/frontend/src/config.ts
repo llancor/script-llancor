@@ -16,7 +16,7 @@ export const modules:Record<string,Module>={
   ]},
   turnos:{key:'turno',title:'Turnos',singular:'turno',subtitle:'Planificación y control de jornadas',primary:'guardia_nombre',secondary:'ubicacion',status:'estado',fields:[
     guardia,{name:'tipo_turno',label:'Tipo',type:'select',options:['Manana','Tarde','Noche']},{name:'fecha',label:'Fecha',type:'date',required:true},
-    {name:'hora_inicio',label:'Hora inicio',type:'time',required:true},{name:'hora_fin',label:'Hora fin',type:'time',required:true},{name:'ubicacion',label:'Ubicación'},
+    {name:'hora_inicio',label:'Hora inicio',type:'time',required:true},{name:'hora_fin',label:'Hora fin',type:'time',required:true},{name:'horas_colacion',label:'Horas de colación',type:'number'},{name:'ubicacion',label:'Ubicación'},
     {name:'observaciones',label:'Observaciones',type:'textarea'},estado(['Programado','En_curso','Completado','Cancelado']),recinto
   ]},
   entradas:{key:'entrada',title:'Entradas',singular:'entrada',subtitle:'Registro de visitantes y vehículos',primary:'visitante_nombre',secondary:'detalle_horario',status:'estado',fields:[

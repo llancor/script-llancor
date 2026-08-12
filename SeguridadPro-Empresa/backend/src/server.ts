@@ -58,10 +58,11 @@ app.post('/api/config/test-telegram',auth,superadmin,asyncHandler(async(req,res)
 app.post('/api/config/test-nextcloud',auth,superadmin,asyncHandler(async(req,res)=>{await testNextcloud();res.json({message:'Conexión con Nextcloud correcta'});}));
 const manageTurnos=(req:any,res:any,next:any)=>req.user?.role==='admin'||(req.user?.role!=='guardia'&&req.user?.permisos?.editar_turnos===true)?next():res.status(403).json({message:'No tienes permiso para programar o editar turnos'});
 app.post('/api/turnos/programar',auth,permit('turnos'),manageTurnos,asyncHandler(async(req,res)=>{
-  const {guardia_id,guardia_nombre,recinto_id,recinto_nombre,tipo_turno,fecha,hora_inicio,hora_fin,ubicacion,observaciones,periodo='dia',dias_semana=[]}=req.body;
+  const {guardia_id,guardia_nombre,recinto_id,recinto_nombre,tipo_turno,fecha,hora_inicio,hora_fin,horas_colacion=0,ubicacion,observaciones,periodo='dia',dias_semana=[]}=req.body;
   if(!guardia_id||!guardia_nombre||!fecha||!hora_inicio||!hora_fin)return res.status(400).json({message:'Guardia, fecha y horario son obligatorios'});
   if(!['Manana','Tarde','Dia','Noche','Personalizado'].includes(tipo_turno))return res.status(400).json({message:'Tipo de turno inválido'});
   if(hora_inicio===hora_fin)return res.status(400).json({message:'La hora de inicio y término deben ser diferentes'});
+  const lunch=Number(horas_colacion);if(!Number.isFinite(lunch)||lunch<0||lunch>=24)return res.status(400).json({message:'Las horas de colación deben estar entre 0 y menos de 24'});
   if(!['dia','semana'].includes(periodo))return res.status(400).json({message:'El período de programación no es válido'});
   const start=new Date(`${fecha}T00:00:00.000Z`);if(Number.isNaN(start.getTime()))return res.status(400).json({message:'Fecha inválida'});
   const dates:Date[]=[];
@@ -72,10 +73,10 @@ app.post('/api/turnos/programar',auth,permit('turnos'),manageTurnos,asyncHandler
     const monday=new Date(start);monday.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));
     for(const day of selected.sort((a,b)=>a-b)){const date=new Date(monday);date.setUTCDate(monday.getUTCDate()+day-1);dates.push(date)}
   }else{dates.push(start)}
-  await validateShifts(guardia_id,dates.map(day=>({fecha:day,hora_inicio,hora_fin})));
-  await db.turno.createMany({data:dates.map(day=>({empresa_id:req.user!.empresa_id!,guardia_id,guardia_nombre,recinto_id:recinto_id||null,recinto_nombre:recinto_nombre||null,tipo_turno,fecha:day,hora_inicio,hora_fin,ubicacion:ubicacion||null,observaciones:observaciones||null,estado:'Programado',created_by_id:req.user!.id}))});
+  await validateShifts(guardia_id,dates.map(day=>({fecha:day,hora_inicio,hora_fin,horas_colacion:lunch})));
+  await db.turno.createMany({data:dates.map(day=>({empresa_id:req.user!.empresa_id!,guardia_id,guardia_nombre,recinto_id:recinto_id||null,recinto_nombre:recinto_nombre||null,tipo_turno,fecha:day,hora_inicio,hora_fin,horas_colacion:lunch,ubicacion:ubicacion||null,observaciones:observaciones||null,estado:'Programado',created_by_id:req.user!.id}))});
   const [guardia,config]=await Promise.all([db.guardia.findUnique({where:{id:guardia_id},select:{email:true}}),db.configuracion.findUnique({where:{id:1}})]);
-  if(config?.shift_email_enabled&&guardia?.email)sendEmail(guardia.email,`Programación de turnos Seguridad-RRHH`,`${guardia_nombre}: ${dates.length} turno(s) desde ${fecha}, horario ${hora_inicio} a ${hora_fin}, ${recinto_nombre||ubicacion||'sin recinto indicado'}.`).catch(error=>console.error('No se pudo enviar programación:',error));
+  if(config?.shift_email_enabled&&guardia?.email)sendEmail(guardia.email,`Programación de turnos Seguridad-RRHH`,`${guardia_nombre}: ${dates.length} turno(s) desde ${fecha}, horario ${hora_inicio} a ${hora_fin}, colación ${lunch} h, ${recinto_nombre||ubicacion||'sin recinto indicado'}.`).catch(error=>console.error('No se pudo enviar programación:',error));
   res.status(201).json({message:`Se crearon ${dates.length} turno(s)`,count:dates.length});
 }));
 app.post('/api/turnos/copiar-semana',auth,permit('turnos'),manageTurnos,asyncHandler(async(req,res)=>{const{fecha_origen,fecha_destino}=req.body;if(!fecha_origen||!fecha_destino)return res.status(400).json({message:'Indica semana de origen y destino'});const origin=new Date(`${fecha_origen}T00:00:00.000Z`),target=new Date(`${fecha_destino}T00:00:00.000Z`),end=new Date(origin);end.setUTCDate(end.getUTCDate()+7);const source=await db.turno.findMany({where:{fecha:{gte:origin,lt:end},estado:{not:'Cancelado'}}});if(!source.length)return res.status(404).json({message:'La semana de origen no tiene turnos'});const offset=target.getTime()-origin.getTime();for(const shift of source)if(shift.guardia_id)await validateShifts(shift.guardia_id,[{fecha:new Date(shift.fecha.getTime()+offset),hora_inicio:shift.hora_inicio,hora_fin:shift.hora_fin}]);await db.turno.createMany({data:source.map(({id,created_at,updated_at,...x})=>({...x,fecha:new Date(x.fecha.getTime()+offset),created_by_id:req.user!.id}))});res.status(201).json({message:`Se copiaron ${source.length} turnos`,count:source.length});}));
@@ -135,6 +136,8 @@ async function migrateCompatibility(){
     if(!configColumns.has(column))await db.$executeRawUnsafe(`ALTER TABLE configuracion ADD COLUMN ${column} ${definition}`);
   }
   await db.$executeRawUnsafe("ALTER TABLE turnos MODIFY COLUMN tipo_turno ENUM('Manana','Tarde','Dia','Noche','Personalizado') NOT NULL");
+  const turnoColumns=await db.$queryRawUnsafe<Array<{COLUMN_NAME:string}>>("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'turnos'");
+  if(!turnoColumns.some(column=>column.COLUMN_NAME==='horas_colacion'))await db.$executeRawUnsafe('ALTER TABLE turnos ADD COLUMN horas_colacion DECIMAL(4,2) NOT NULL DEFAULT 0 AFTER hora_fin');
   await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS relevos (
     id VARCHAR(30) PRIMARY KEY, turno_id VARCHAR(30) NULL, guardia_saliente_id VARCHAR(30) NULL, guardia_saliente_nombre VARCHAR(150) NOT NULL,
     guardia_entrante_id VARCHAR(30) NULL, guardia_entrante_nombre VARCHAR(150) NOT NULL, recinto_id VARCHAR(30) NULL, recinto_nombre VARCHAR(150) NULL,
