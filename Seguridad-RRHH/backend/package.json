@@ -1,5 +1,5 @@
 {
-  "name": "seguridad-rrhh-backend",
+  "name": "bastcontrol-backend",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",

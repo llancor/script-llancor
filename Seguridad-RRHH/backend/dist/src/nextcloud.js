@@ -4,7 +4,7 @@ async function settings() { const c = await db.configuracion.findUnique({ where:
     throw new Error('Nextcloud no está configurado'); const root = c.nextcloud_url.replace(/\/$/, '') + `/remote.php/dav/files/${encodeURIComponent(c.nextcloud_user)}`, auth = 'Basic ' + Buffer.from(`${c.nextcloud_user}:${decryptSecret(c.nextcloud_password)}`).toString('base64'); return { c, root, headers: { Authorization: auth } }; }
 export async function testNextcloud() { const { root, headers } = await settings(); const r = await fetch(root + '/', { method: 'PROPFIND', headers: { ...headers, Depth: '0' } }); if (!r.ok && r.status !== 207)
     throw new Error(`Nextcloud respondió ${r.status}`); }
-export async function uploadNextcloud(worker, file) { const { c, root, headers } = await settings(), base = String(c.nextcloud_folder || 'Seguridad-RRHH').replace(/^\/+|\/+$/g, ''), person = `${worker.documento}-${worker.nombre}`.replace(/[^\p{L}\p{N}._-]+/gu, '_'), dirs = [base, `${base}/${person}`]; for (const dir of dirs) {
+export async function uploadNextcloud(worker, file) { const { c, root, headers } = await settings(), base = String(c.nextcloud_folder || 'BastControl').replace(/^\/+|\/+$/g, ''), person = `${worker.documento}-${worker.nombre}`.replace(/[^\p{L}\p{N}._-]+/gu, '_'), dirs = [base, `${base}/${person}`]; for (const dir of dirs) {
     const r = await fetch(`${root}/${encodePath(dir)}`, { method: 'MKCOL', headers });
     if (!r.ok && r.status !== 405)
         throw new Error(`No se pudo crear la carpeta Nextcloud (${r.status})`);

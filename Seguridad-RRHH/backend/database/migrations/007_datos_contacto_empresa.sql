@@ -1,4 +1,4 @@
-USE seguridad_rrhh;
+USE bastcontrol;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 ALTER TABLE configuracion
   ADD COLUMN company_contact_enabled BOOLEAN NOT NULL DEFAULT FALSE,

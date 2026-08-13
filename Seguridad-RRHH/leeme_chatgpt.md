@@ -1,16 +1,16 @@
-Este proyecto se llama Seguridad-RRHH-beta.
+Este proyecto se llama BastControl.
 
 Es un monorepo:
 - backend: Express, TypeScript, Prisma y MySQL.
 - frontend: React, TypeScript, Vite, Tailwind y Leaflet.
 - despliegue: Docker Compose en Debian.
-- instalador: Instalar_Seguridad-RRHH_llancor_v3.0.sh.
+- instalador: Instalar_BastControl_llancor_v3.0.sh.
 
 El instalador clona:
-https://github.com/llancor/script-llancor.git
+https://github.com/llancor/Bast-Control-Acceso.git
 
 Y utiliza:
-PROJECT_SUBDIR="Seguridad-RRHH-beta"
+PROJECT_SUBDIR="Bast-Control"
 
 Funciones recientes:
 - Administración de usuarios.

@@ -51,7 +51,7 @@ app.get('/api/users', auth, admin, asyncHandler(async (req, res) => res.json((aw
 app.get('/api/audit', auth, admin, asyncHandler(async (req, res) => { const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100))); res.json(await db.auditLog.findMany({ take: limit, orderBy: { created_at: 'desc' }, include: { user: { select: { full_name: true, email: true } } } })); }));
 app.post('/api/users/invite', auth, admin, asyncHandler(async (req, res) => { const { password, send_invitation, ...data } = req.body; if (!password || password.length < 8)
     return res.status(400).json({ message: 'La contraseña debe tener al menos 8 caracteres' }); const user = await db.user.create({ data: { ...data, password: await bcrypt.hash(password, 12), email_verified: true, enabled: data.enabled ?? true, must_change_password: true } }); if (send_invitation)
-    await sendEmail(user.email, 'Cuenta creada en Seguridad-RRHH', `Tu cuenta fue creada. Ingresa con ${user.email} y la contraseña proporcionada por el administrador. Deberás cambiarla al ingresar.`); res.status(201).json(publicUser(user)); }));
+    await sendEmail(user.email, 'Cuenta creada en BastControl', `Tu cuenta fue creada. Ingresa con ${user.email} y la contraseña proporcionada por el administrador. Deberás cambiarla al ingresar.`); res.status(201).json(publicUser(user)); }));
 app.put('/api/users/:id', auth, admin, asyncHandler(async (req, res) => { const allowed = ['full_name', 'email', 'role', 'rango', 'telefono', 'cargo', 'permisos', 'enabled']; const data = Object.fromEntries(Object.entries(req.body).filter(([key]) => allowed.includes(key))); res.json(publicUser(await db.user.update({ where: { id: req.params.id }, data }))); }));
 app.put('/api/users/:id/password', auth, admin, asyncHandler(async (req, res) => { const { password } = req.body; if (!password || password.length < 8)
     return res.status(400).json({ message: 'La contraseña debe tener al menos 8 caracteres' }); await db.user.update({ where: { id: req.params.id }, data: { password: await bcrypt.hash(password, 12), email_verified: true, must_change_password: true } }); res.json({ message: 'Contraseña restablecida. El usuario deberá cambiarla al ingresar' }); }));
@@ -79,7 +79,7 @@ app.put('/api/config', auth, admin, asyncHandler(async (req, res) => { const all
 else
     delete data.nextcloud_password; const config = await db.configuracion.upsert({ where: { id: 1 }, update: data, create: { id: 1, ...data } }); res.json(safeConfig(config)); }));
 app.post('/api/config/test-email', auth, admin, asyncHandler(async (req, res) => { if (!req.body.email)
-    return res.status(400).json({ message: 'Indica un email de destino' }); await sendEmail(req.body.email, 'Prueba SMTP Seguridad-RRHH', 'La configuración SMTP funciona correctamente.'); res.json({ message: 'Correo de prueba enviado' }); }));
+    return res.status(400).json({ message: 'Indica un email de destino' }); await sendEmail(req.body.email, 'Prueba SMTP BastControl', 'La configuración SMTP funciona correctamente.'); res.json({ message: 'Correo de prueba enviado' }); }));
 app.post('/api/config/test-telegram', auth, admin, asyncHandler(async (req, res) => { await sendTelegram('La configuración de Telegram funciona correctamente.'); res.json({ message: 'Mensaje de prueba enviado' }); }));
 app.post('/api/config/test-nextcloud', auth, admin, asyncHandler(async (req, res) => { await testNextcloud(); res.json({ message: 'Conexión con Nextcloud correcta' }); }));
 app.post('/api/turnos/programar', auth, permit('turnos'), asyncHandler(async (req, res) => {
@@ -119,7 +119,7 @@ app.post('/api/turnos/programar', auth, permit('turnos'), asyncHandler(async (re
     await db.turno.createMany({ data: dates.map(day => ({ guardia_id, guardia_nombre, recinto_id: recinto_id || null, recinto_nombre: recinto_nombre || null, tipo_turno, fecha: day, hora_inicio, hora_fin, horas_colacion: lunch, ubicacion: ubicacion || null, observaciones: observaciones || null, estado: 'Programado', created_by_id: req.user.id })) });
     const [guardia, config] = await Promise.all([db.guardia.findUnique({ where: { id: guardia_id }, select: { email: true } }), db.configuracion.findUnique({ where: { id: 1 } })]);
     if (config?.shift_email_enabled && guardia?.email)
-        sendEmail(guardia.email, `Programación de turnos Seguridad-RRHH`, `${guardia_nombre}: ${dates.length} turno(s) desde ${fecha}, horario ${hora_inicio} a ${hora_fin}, ${recinto_nombre || ubicacion || 'sin recinto indicado'}.`).catch(error => console.error('No se pudo enviar programación:', error));
+        sendEmail(guardia.email, `Programación de turnos BastControl`, `${guardia_nombre}: ${dates.length} turno(s) desde ${fecha}, horario ${hora_inicio} a ${hora_fin}, ${recinto_nombre || ubicacion || 'sin recinto indicado'}.`).catch(error => console.error('No se pudo enviar programación:', error));
     res.status(201).json({ message: `Se crearon ${dates.length} turno(s)`, count: dates.length });
 }));
 app.post('/api/turnos/copiar-semana', auth, permit('turnos'), asyncHandler(async (req, res) => { const { fecha_origen, fecha_destino } = req.body; if (!fecha_origen || !fecha_destino)
@@ -174,7 +174,7 @@ async function migrateCompatibility() {
     await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS audit_logs (id VARCHAR(30) PRIMARY KEY,user_id VARCHAR(30) NULL,action VARCHAR(191) NOT NULL,entity VARCHAR(191) NULL,entity_id VARCHAR(30) NULL,detail JSON NULL,ip_address VARCHAR(191) NULL,user_agent TEXT NULL,created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,KEY idx_audit_user_created (user_id,created_at),KEY idx_audit_action_created (action,created_at),CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL) ENGINE=InnoDB`);
     const configColumns = await existing('configuracion');
     const configDefinitions = {
-        nextcloud_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', nextcloud_url: 'VARCHAR(500) NULL', nextcloud_user: 'VARCHAR(190) NULL', nextcloud_password: 'VARCHAR(500) NULL', nextcloud_folder: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad-RRHH'",
+        nextcloud_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', nextcloud_url: 'VARCHAR(500) NULL', nextcloud_user: 'VARCHAR(190) NULL', nextcloud_password: 'VARCHAR(500) NULL', nextcloud_folder: "VARCHAR(255) NOT NULL DEFAULT 'BastControl'",
         login_max_attempts: 'INT NOT NULL DEFAULT 5', login_lock_minutes: 'INT NOT NULL DEFAULT 15', login_ban_email_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', login_ban_telegram_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE',
         smtp_host: 'VARCHAR(190) NULL', smtp_port: 'SMALLINT UNSIGNED NOT NULL DEFAULT 587', smtp_secure: 'BOOLEAN NOT NULL DEFAULT FALSE',
         smtp_user: 'VARCHAR(190) NULL', smtp_password: 'VARCHAR(255) NULL', mail_from: 'VARCHAR(255) NULL',
@@ -184,11 +184,11 @@ async function migrateCompatibility() {
         timezone: "VARCHAR(80) NOT NULL DEFAULT 'America/Santiago'", date_format: "VARCHAR(20) NOT NULL DEFAULT 'DD/MM/YYYY'", time_format: "VARCHAR(10) NOT NULL DEFAULT '24h'",
         turno_dia_inicio: "VARCHAR(8) NOT NULL DEFAULT '08:00'", turno_dia_fin: "VARCHAR(8) NOT NULL DEFAULT '20:00'", turno_manana_inicio: "VARCHAR(8) NOT NULL DEFAULT '08:00'", turno_manana_fin: "VARCHAR(8) NOT NULL DEFAULT '16:00'", turno_tarde_inicio: "VARCHAR(8) NOT NULL DEFAULT '16:00'", turno_tarde_fin: "VARCHAR(8) NOT NULL DEFAULT '00:00'", turno_noche_inicio: "VARCHAR(8) NOT NULL DEFAULT '20:00'", turno_noche_fin: "VARCHAR(8) NOT NULL DEFAULT '08:00'",
         turno_dia_color: "VARCHAR(20) NOT NULL DEFAULT '#f59e0b'", turno_noche_color: "VARCHAR(20) NOT NULL DEFAULT '#2563eb'", turno_personalizado_color: "VARCHAR(20) NOT NULL DEFAULT '#7c3aed'",
-        theme: "VARCHAR(30) NOT NULL DEFAULT 'esmeralda'", brand_name: "VARCHAR(100) NOT NULL DEFAULT 'Seguridad'", brand_subtitle: "VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones'",
-        hero_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.'", hero_description: 'TEXT NULL', hero_footer: "VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.'",
+        theme: "VARCHAR(30) NOT NULL DEFAULT 'esmeralda'", brand_name: "VARCHAR(100) NOT NULL DEFAULT 'BastControl'", brand_subtitle: "VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones'",
+        hero_title: "VARCHAR(255) NOT NULL DEFAULT 'BastControl conectado, decisiones claras.'", hero_description: 'TEXT NULL', hero_footer: "VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.'",
         logo_url: 'MEDIUMTEXT NULL', icon_url: 'MEDIUMTEXT NULL', hero_image_url: 'MEDIUMTEXT NULL', public_page_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', public_banner_color: "VARCHAR(20) NOT NULL DEFAULT '#e2e8f0'",
         company_contact_enabled: 'BOOLEAN NOT NULL DEFAULT FALSE', company_contact_name: 'VARCHAR(150) NULL', company_email: 'VARCHAR(190) NULL', company_phone: 'VARCHAR(40) NULL', company_address: 'VARCHAR(255) NULL', company_website_url: 'VARCHAR(500) NULL',
-        company_title: "VARCHAR(255) NOT NULL DEFAULT 'Seguridad que inspira confianza'", company_description: 'TEXT NULL', company_services: 'TEXT NULL', quote_email: 'VARCHAR(190) NULL'
+        company_title: "VARCHAR(255) NOT NULL DEFAULT 'BastControl inspira confianza'", company_description: 'TEXT NULL', company_services: 'TEXT NULL', quote_email: 'VARCHAR(190) NULL'
     };
     for (const [column, definition] of Object.entries(configDefinitions)) {
         if (!configColumns.has(column))
@@ -271,7 +271,7 @@ async function start() {
     }
     if (lastError)
         throw lastError;
-    const adminEmail = process.env.INITIAL_ADMIN_EMAIL || 'admin@seguridad.cl';
+    const adminEmail = process.env.INITIAL_ADMIN_EMAIL || 'admin@bastcontrol.com';
     if (!await db.user.findUnique({ where: { email: adminEmail } })) {
         const initialPassword = process.env.INITIAL_ADMIN_PASSWORD;
         if (!initialPassword || initialPassword.length < 12)
@@ -281,6 +281,6 @@ async function start() {
     }
     await processRrhhNotifications();
     setInterval(() => processRrhhNotifications(), 60 * 60_000).unref();
-    server.listen(Number(process.env.PORT || 4000), () => console.log(`Seguridad-RRHH API en http://localhost:${process.env.PORT || 4000}`));
+    server.listen(Number(process.env.PORT || 4000), () => console.log(`BastControl API en http://localhost:${process.env.PORT || 4000}`));
 }
-start().catch(error => { console.error('No fue posible iniciar Seguridad-RRHH:', error); process.exit(1); });
+start().catch(error => { console.error('No fue posible iniciar BastControl:', error); process.exit(1); });

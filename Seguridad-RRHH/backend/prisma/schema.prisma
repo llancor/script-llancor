@@ -375,7 +375,7 @@ model Configuracion {
   nextcloud_url String?
   nextcloud_user String?
   nextcloud_password String?
-  nextcloud_folder String @default("Seguridad-RRHH")
+  nextcloud_folder String @default("BastControl")
   smtp_host String?
   smtp_port Int @default(587)
   smtp_secure Boolean @default(false)
@@ -406,9 +406,9 @@ model Configuracion {
   turno_noche_color String @default("#2563eb")
   turno_personalizado_color String @default("#7c3aed")
   theme String @default("esmeralda")
-  brand_name String @default("Seguridad")
+  brand_name String @default("BastControl")
   brand_subtitle String @default("Centro de operaciones")
-  hero_title String @default("Seguridad conectada, decisiones claras.")
+  hero_title String @default("BastControl conectado, decisiones claras.")
   hero_description String? @db.Text
   hero_footer String @default("Protección visible. Gestión inteligente.")
   logo_url String? @db.MediumText
@@ -422,7 +422,7 @@ model Configuracion {
   company_phone String?
   company_address String?
   company_website_url String?
-  company_title String @default("Seguridad que inspira confianza")
+  company_title String @default("BastControl inspira confianza")
   company_description String? @db.Text
   company_services String? @db.Text
   quote_email String?

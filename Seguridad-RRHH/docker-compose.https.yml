@@ -16,7 +16,7 @@ services:
     depends_on:
       frontend:
         condition: service_healthy
-    networks: [seguridad-rrhh]
+    networks: [bastcontrol]
 volumes:
   caddy_data:
   caddy_config:

@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import { audit,db } from './lib.js';
+import { db } from './lib.js';
 
 const users=()=>db.user.findMany({orderBy:{email:'asc'}});
 async function selectUser(selector?:string){
@@ -22,9 +22,7 @@ async function main(){
     const user=await selectUser(selector);await db.user.update({where:{id:user.id},data:{failed_login_attempts:0,locked_until:null}});console.log(`Bloqueo retirado para ${user.email}`);return;
   }
   if(command==='set-enabled'){
-    const user=await selectUser(selector),enabled=value==='true';if(!['true','false'].includes(value||''))throw new Error('Uso: set-enabled <número|email> <true|false>');
-    const revokedSessions=await db.$transaction(async transaction=>{if(!enabled&&user.role==='admin'&&user.enabled&&await transaction.user.count({where:{role:'admin',enabled:true}})<=1)throw new Error('No se puede desactivar el último administrador activo');await transaction.user.update({where:{id:user.id},data:{enabled,...(!enabled?{failed_login_attempts:0,locked_until:null}:{})}});return !enabled?(await transaction.session.updateMany({where:{user_id:user.id,revoked_at:null},data:{revoked_at:new Date()}})).count:0},{isolationLevel:'Serializable'});
-    await audit(enabled?'usuario_activado_cli':'usuario_desactivado_cli',{entity:'user',entityId:user.id,detail:{target_email:user.email,revoked_sessions:revokedSessions}});console.log(`${user.email} quedó ${enabled?'activo':'desactivado'}`);return;
+    const user=await selectUser(selector),enabled=value==='true';if(!['true','false'].includes(value||''))throw new Error('Uso: set-enabled <número|email> <true|false>');if(!enabled&&user.role==='admin'&&user.enabled&&await db.user.count({where:{role:'admin',enabled:true}})<=1)throw new Error('No se puede desactivar el último administrador activo');await db.user.update({where:{id:user.id},data:{enabled,...(!enabled?{failed_login_attempts:0,locked_until:null}:{})}});console.log(`${user.email} quedó ${enabled?'activo':'desactivado'}`);return;
   }
   throw new Error('Comandos: list-users | reset-password | unlock | set-enabled');
 }

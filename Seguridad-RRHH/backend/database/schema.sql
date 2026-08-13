@@ -1,5 +1,5 @@
-CREATE DATABASE IF NOT EXISTS seguridad_rrhh CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE seguridad_rrhh;
+CREATE DATABASE IF NOT EXISTS bastcontrol CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE bastcontrol;
 SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE users (
@@ -126,9 +126,9 @@ CREATE TABLE configuracion (
   turno_dia_inicio VARCHAR(8) NOT NULL DEFAULT '08:00', turno_dia_fin VARCHAR(8) NOT NULL DEFAULT '20:00',
   turno_noche_inicio VARCHAR(8) NOT NULL DEFAULT '20:00', turno_noche_fin VARCHAR(8) NOT NULL DEFAULT '08:00',
   turno_dia_color VARCHAR(20) NOT NULL DEFAULT '#f59e0b', turno_noche_color VARCHAR(20) NOT NULL DEFAULT '#2563eb', turno_personalizado_color VARCHAR(20) NOT NULL DEFAULT '#7c3aed',
-  theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'Seguridad',
+  theme VARCHAR(30) NOT NULL DEFAULT 'esmeralda', brand_name VARCHAR(100) NOT NULL DEFAULT 'BastControl',
   brand_subtitle VARCHAR(150) NOT NULL DEFAULT 'Centro de operaciones',
-  hero_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad conectada, decisiones claras.', hero_description TEXT,
+  hero_title VARCHAR(255) NOT NULL DEFAULT 'BastControl conectado, decisiones claras.', hero_description TEXT,
   hero_footer VARCHAR(255) NOT NULL DEFAULT 'Protección visible. Gestión inteligente.',
   logo_url MEDIUMTEXT NULL, icon_url MEDIUMTEXT NULL, hero_image_url MEDIUMTEXT NULL,
   public_page_enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -136,7 +136,7 @@ CREATE TABLE configuracion (
   company_contact_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   company_contact_name VARCHAR(150) NULL, company_email VARCHAR(190) NULL,
   company_phone VARCHAR(40) NULL, company_address VARCHAR(255) NULL, company_website_url VARCHAR(500) NULL,
-  company_title VARCHAR(255) NOT NULL DEFAULT 'Seguridad que inspira confianza', company_description TEXT NULL,
+  company_title VARCHAR(255) NOT NULL DEFAULT 'BastControl inspira confianza', company_description TEXT NULL,
   company_services TEXT NULL, quote_email VARCHAR(190) NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT chk_config_singleton CHECK (id = 1)

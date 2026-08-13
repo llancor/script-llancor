@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { KeyRound, Pencil, Plus, Power } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { api, useAuth } from '../state';
 import { Badge, Button, Dialog, PageHead } from '../components';
 
 // Catálogo predeterminado; pueden agregarse nuevos módulos a esta lista.
 const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios','configuracion'];
-const defaultGuardPermissions = new Set(['relevos','rondas','entradas','reportes','alertas']);
-const protectedModules=[['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
+const defaultGuardPermissions = new Set(['turnos','relevos','rondas','entradas','reportes','alertas']);
+const protectedModules=[['turnos','Turnos'],['rondas','Rondas'],['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
 const roles = [['admin','Administrador'],['jefe_turno','Jefe de turno'],['guardia','Guardia']];
 const rangos = [['supervisor','Supervisor'],['guardia_senior','Guardia senior'],['guardia','Guardia'],['cabo','Cabo'],['conserje','Conserje'],['nochero','Nochero']];
 const blank = () => ({
   full_name:'', email:'', password:'', role:'guardia', rango:'guardia', telefono:'', cargo:'', enabled:true, send_invitation:false,
-  permisos:{...Object.fromEntries(permissions.map(permission=>[permission,defaultGuardPermissions.has(permission)])),editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,ver_registros:'propios'}
+  permisos:{...Object.fromEntries(permissions.map(permission=>[permission,defaultGuardPermissions.has(permission)])),editar_turnos:false,eliminar_turnos:false,editar_rondas:true,eliminar_rondas:false,editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,ver_registros:'propios'}
 });
 
 export default function Users(){
@@ -26,14 +26,14 @@ export default function Users(){
   const begin=(item?:any)=>{setEditing(item||null);setV(item?{...item,password:'',permisos:{...blank().permisos,...item.permisos}}:blank());setOpen(true)};
   const save=async(event:any)=>{event.preventDefault();setError('');try{if(editing)await api('/users/'+editing.id,{method:'PUT',body:JSON.stringify(v)});else await api('/users/invite',{method:'POST',body:JSON.stringify(v)});setOpen(false);load()}catch(reason){setError((reason as Error).message)}};
   const reset=async(item:any)=>{const password=prompt(`Nueva contraseña para ${item.email} (mínimo 8 caracteres):`);if(!password)return;try{await api(`/users/${item.id}/password`,{method:'PUT',body:JSON.stringify({password})});alert('Contraseña restablecida')}catch(reason){alert((reason as Error).message)}};
-  const toggle=async(item:any)=>{try{await api('/users/'+item.id,{method:'PUT',body:JSON.stringify({enabled:!item.enabled})});load()}catch(reason){alert((reason as Error).message)}};
+  const toggle=async(item:any)=>{await api('/users/'+item.id,{method:'PUT',body:JSON.stringify({enabled:!item.enabled})});load()};
 
   return <>
     <PageHead title="Usuarios" subtitle="Cuentas, contraseñas, roles y permisos" action={<Button onClick={()=>begin()}><Plus size={18}/>Crear usuario</Button>}/>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {items.map(item=><div key={item.id} className="grid gap-2 border-b border-slate-100 p-5 last:border-0 dark:border-slate-800 md:grid-cols-[1.4fr_1.5fr_1fr_1fr_auto] md:items-center">
         <div><b>{item.full_name}</b><p className="text-xs text-slate-500">{item.rango?.replace('_',' ')||'Sin rango'}</p></div><span className="text-sm text-slate-500">{item.email}</span><Badge>{item.role}</Badge><Badge tone={item.enabled?'green':'red'}>{item.enabled?'Habilitado':'Deshabilitado'}</Badge>
-        <div className="flex gap-1"><Icon title="Editar" onClick={()=>begin(item)}><Pencil/></Icon><Icon title="Restablecer contraseña" onClick={()=>reset(item)}><KeyRound/></Icon><Icon title={item.enabled?'Deshabilitar':'Habilitar'} disabled={item.id===user?.id} onClick={()=>toggle(item)}><Power/></Icon></div>
+        <div className="flex gap-1"><Icon title="Editar" onClick={()=>begin(item)}><Pencil/></Icon><Icon title="Restablecer contraseña" onClick={()=>reset(item)}><KeyRound/></Icon><Icon title={item.enabled?'Deshabilitar':'Habilitar'} disabled={item.id===user?.id} onClick={()=>toggle(item)}><Power/></Icon><Icon title="Eliminar" disabled={item.id===user?.id} danger onClick={async()=>{if(confirm(`¿Eliminar definitivamente a ${item.full_name}?`)){await api('/users/'+item.id,{method:'DELETE'});load()}}}><Trash2/></Icon></div>
       </div>)}
     </div>
     <Dialog open={open} onClose={()=>setOpen(false)} title={editing?'Editar usuario':'Crear usuario'}>

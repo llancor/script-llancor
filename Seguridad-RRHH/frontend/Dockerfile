@@ -6,7 +6,7 @@ COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY frontend frontend
-RUN pnpm --filter seguridad-rrhh-frontend build
+RUN pnpm --filter bastcontrol-frontend build
 
 FROM nginx:1.27-alpine
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf

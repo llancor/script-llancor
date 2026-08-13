@@ -1,5 +1,5 @@
 {
-  "name": "seguridad-rrhh",
+  "name": "bastcontrol",
   "private": true,
   "packageManager": "pnpm@10.15.1",
   "workspaces": ["backend", "frontend"],

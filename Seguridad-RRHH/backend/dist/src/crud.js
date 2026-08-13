@@ -97,7 +97,7 @@ async function notifyCreated(model, item) {
     const details = lines.join('\n');
     const destination = config.notification_email || config.smtp_user || process.env.SMTP_USER;
     if ((isAlert ? config.alert_email_enabled : config.report_email_enabled) && destination) {
-        await sendEmail(destination, `${label} Seguridad-RRHH: ${item.titulo}`, details);
+        await sendEmail(destination, `${label} BastControl: ${item.titulo}`, details);
     }
     if (isAlert ? config.alert_telegram_enabled : config.report_telegram_enabled) {
         const escapeHtml = (value) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -132,7 +132,7 @@ crud.post('/:model', asyncHandler(async (req, res) => {
             return guardia;
         });
         if (req.body.enviar_invitacion)
-            sendEmail(email, 'Acceso creado en Seguridad-RRHH', `Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error => console.error('No se pudo enviar la invitación:', error));
+            sendEmail(email, 'Acceso creado en BastControl', `Hola ${item.nombre}. Tu cuenta fue creada. Usuario: ${email}\nContraseña temporal: ${password}\nPor seguridad deberás cambiarla al ingresar.`).catch(error => console.error('No se pudo enviar la invitación:', error));
         req.app.get('io')?.emit('guardia:created', item);
         return res.status(201).json(item);
     }

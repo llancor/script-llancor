@@ -3,8 +3,8 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: seguridad_rrhh
-      MYSQL_USER: seguridad_rrhh
+      MYSQL_DATABASE: bastcontrol
+      MYSQL_USER: bastcontrol
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cambia-esta-clave}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-cambia-esta-clave-root}
     volumes:
@@ -16,7 +16,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [seguridad-rrhh]
+    networks: [bastcontrol]
 
   backend:
     build:
@@ -26,9 +26,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: mysql://seguridad_rrhh:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/seguridad_rrhh
+      DATABASE_URL: mysql://bastcontrol:${MYSQL_PASSWORD:-cambia-esta-clave}@db:3306/bastcontrol
       JWT_SECRET: ${JWT_SECRET:-reemplaza-esta-clave-jwt}
-      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@seguridad.cl}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@bastcontrol.com}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       FRONTEND_URL: ${APP_URL:-http://localhost}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -36,7 +36,7 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      MAIL_FROM: ${MAIL_FROM:-Seguridad <no-reply@seguridad.local>}
+      MAIL_FROM: ${MAIL_FROM:-BastControl <no-reply@bastcontrol.local>}
     depends_on:
       db:
         condition: service_healthy
@@ -46,7 +46,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-    networks: [seguridad-rrhh]
+    networks: [bastcontrol]
 
   frontend:
     build:
@@ -58,11 +58,11 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    networks: [seguridad-rrhh]
+    networks: [bastcontrol]
 
 volumes:
   mysql_data:
 
 networks:
-  seguridad-rrhh:
+  bastcontrol:
     driver: bridge
