@@ -441,7 +441,7 @@ while true; do
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}9)${Y} Ver credenciales iniciales${N}\n"
-  printf "  ${Y}10)${Y} Actualizar Seguridad RRHH${N}\n"
+  printf "  ${Y}10)${Y} Actualizar SeguridadPro Empresa GITHUB${N}\n"
   printf "  ${Y}11)${C} Crear respaldo${N}\n"
   printf "  ${Y}12)${C} Restaurar respaldo${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
