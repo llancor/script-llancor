@@ -40,8 +40,8 @@ const normalize=(model:string,body:any,updating=false)=>{
 export const crud=Router();
 crud.use((req,res,next)=>{res.on('finish',()=>{if(req.method!=='GET'&&res.statusCode<500)audit(`crud_${req.method.toLowerCase()}`,{userId:req.user?.id,entity:req.params.model?String(req.params.model):undefined,entityId:req.params.id?String(req.params.id):undefined,detail:{status:res.statusCode},ip:req.ip,userAgent:req.get('user-agent')})});next()});
 const canSeeAll=(req:any)=>['admin','superadmin'].includes(req.user?.role)||req.user?.permisos?.ver_registros==='todos';
-const protectedActions=['turno','entrada','reporte','alerta'];
-const canEdit=(req:any,model:string)=>(model==='turno'&&req.user?.role==='guardia')?false:req.user?.role==='admin'||!protectedActions.includes(model)||(req.user?.permisos?.[model+'s']===true&&(model==='turno'?req.user?.permisos?.editar_turnos===true:req.user?.permisos?.[`editar_${model}s`]!==false));
+const protectedActions=['turno','ronda','entrada','reporte','alerta'];
+const canEdit=(req:any,model:string)=>(model==='turno'&&req.user?.role==='guardia')?false:req.user?.role==='admin'||!protectedActions.includes(model)||(req.user?.permisos?.[model+'s']===true&&(['turno','ronda'].includes(model)?req.user?.permisos?.[`editar_${model}s`]===true:req.user?.permisos?.[`editar_${model}s`]!==false));
 const canDelete=(req:any,model:string)=>(model==='turno'&&req.user?.role==='guardia')?false:req.user?.role==='admin'||!protectedActions.includes(model)||req.user?.permisos?.[`eliminar_${model}s`]===true;
 const ownedWhere=(req:any,model:string,forceOwn=false)=>{const tenant=req.user?.empresa_id?{empresa_id:req.user.empresa_id}:{};if(model==='turno'&&req.user?.role==='guardia')return{AND:[tenant,{guardia_id:req.user.guardia_id}]};if(!forceOwn&&canSeeAll(req))return tenant;const creator={created_by_id:req.user!.id};const guardiaId=req.user?.guardia_id;if(!guardiaId)return{AND:[tenant,creator]};if(model==='guardia')return{AND:[tenant,{OR:[creator,{id:guardiaId}]}]};if(model==='relevo')return{AND:[tenant,{OR:[creator,{guardia_saliente_id:guardiaId},{guardia_entrante_id:guardiaId}]}]};if(['turno','ronda','entrada','reporte','alerta'].includes(model))return{AND:[tenant,{OR:[creator,{guardia_id:guardiaId}]}]};return{AND:[tenant,creator]};};
 async function ensureVisible(req:any,res:any,write=false){
@@ -84,6 +84,7 @@ crud.get('/:model',asyncHandler(async(req,res)=>{const model=req.params.model;co
 crud.get('/:model/:id',asyncHandler(async(req,res)=>{const item=await ensureVisible(req,res);if(item)res.json(item)}));
 crud.post('/:model',asyncHandler(async(req,res)=>{
   if(req.params.model==='turno'&&!canEdit(req,'turno'))return res.status(403).json({message:'No tienes permiso para programar turnos'});
+  if(req.params.model==='ronda'&&!canEdit(req,'ronda'))return res.status(403).json({message:'No tienes permiso para crear rondas'});
   if(req.user!.empresa_id&&['guardia','recinto'].includes(req.params.model)){
     const company=await db.empresa.findUniqueOrThrow({where:{id:req.user!.empresa_id}});
     const limit=req.params.model==='guardia'?company.limite_guardias:company.limite_recintos;
@@ -95,7 +96,7 @@ crud.post('/:model',asyncHandler(async(req,res)=>{
     if(!email||!/^\S+@\S+\.\S+$/.test(email))return res.status(400).json({message:'Ingresa un correo válido para crear el acceso'});
     if(password.length<8)return res.status(400).json({message:'La contraseña temporal debe tener al menos 8 caracteres'});
     if(await db.user.findUnique({where:{email}}))return res.status(409).json({message:'Ya existe un usuario con este correo. Vincúlalo desde administración o utiliza otro correo'});
-    const permisos={guardias:false,turnos:true,relevos:true,rondas:true,recintos:false,entradas:true,reportes:true,alertas:true,editar_turnos:false,eliminar_turnos:false,editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,usuarios:false,configuracion:false,ver_registros:'propios'};
+    const permisos={guardias:false,turnos:true,relevos:true,rondas:true,recintos:false,entradas:true,reportes:true,alertas:true,editar_turnos:false,eliminar_turnos:false,editar_rondas:true,eliminar_rondas:false,editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,usuarios:false,configuracion:false,ver_registros:'propios'};
     const item=await db.$transaction(async transaction=>{
       const guardia=await transaction.guardia.create({data:{...normalize('guardia',{...req.body,email,created_by_id:req.user!.id}),empresa_id:req.user!.empresa_id!}});
       await transaction.user.create({data:{full_name:guardia.nombre,email,password:await bcrypt.hash(password,12),role:'guardia',rango:guardia.rango,telefono:guardia.telefono,permisos,guardia_id:guardia.id,empresa_id:req.user!.empresa_id!,foto_url:guardia.foto_url,email_verified:true,enabled:true,must_change_password:true}});
