@@ -8,7 +8,9 @@ CYAN='\033[1;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-set -e
+# Detecta fallos dentro de tuberías (tar | pv | gzip), pero no usa "set -e":
+# un error recuperable de Docker no debe cerrar todo el menú sin avisar.
+set -o pipefail
 
 BACKUP_BASE="/root/docker-backups"
 
@@ -93,6 +95,11 @@ seleccionar_apps() {
 
         for N in $RESP
         do
+            if ! [[ "$N" =~ ^[0-9]+$ ]]; then
+                echo "Selección ignorada: $N no es un número válido."
+                continue
+            fi
+
             IDX=$((N-1))
 
             if [ "$IDX" -ge 0 ] && [ "$IDX" -lt "${#APPS[@]}" ]; then
@@ -294,6 +301,11 @@ importar_simple() {
 
     read -rp "Seleccione backup: " N
 
+    if ! [[ "$N" =~ ^[0-9]+$ ]] || [ "$N" -lt 1 ] || [ "$N" -gt "${#BACKUPS[@]}" ]; then
+        echo "Selección no válida."
+        return
+    fi
+
     IDX=$((N-1))
 
     BACKUP="${BACKUPS[$IDX]}"
@@ -305,10 +317,20 @@ importar_simple() {
 
     mkdir -p /opt
 
+    if [ ! -f "$BACKUP/apps.list" ]; then
+        echo "El backup no contiene apps.list; no se puede importar."
+        return
+    fi
+
     while IFS= read -r APP
     do
 
         echo "-> Restaurando $APP"
+
+        if [ ! -f "$BACKUP/apps/${APP}.tar.gz" ]; then
+            echo "   Archivo no encontrado; se omite: apps/${APP}.tar.gz"
+            continue
+        fi
 
         tar xzpf \
             "$BACKUP/apps/${APP}.tar.gz" \
@@ -489,7 +511,6 @@ $VERSION_CODENAME stable" \
     fi
 
     echo
-    read -rp "ENTER para continuar..."
 }
 eliminar_apps() {
 
@@ -777,7 +798,7 @@ mostrar_docker() {
     echo -e "${WHITE}IP Servidor:${NC} ${GREEN}${IP_SERVIDOR}${NC}"
     echo
 
-    read -rp "ENTER para continuar..."
+    return
 }
 limpiar_docker() {
 
@@ -809,10 +830,24 @@ limpiar_docker() {
     echo -e "${GREEN}Limpieza completada.${NC}"
     echo
 }
-reiniciar_contenedores() {
+gestionar_contenedores() {
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo
+        echo -e "${RED}Docker no está instalado.${NC}"
+        echo
+        return
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        echo
+        echo -e "${RED}Docker no está iniciado o no responde.${NC}"
+        echo
+        return
+    fi
 
     mapfile -t CONTENEDORES < <(
-        docker ps -a --format '{{.Names}}'
+        docker ps -a --format '{{.Names}}' | sort
     )
 
     if [ ${#CONTENEDORES[@]} -eq 0 ]; then
@@ -857,61 +892,66 @@ reiniciar_contenedores() {
     done
 
     echo
-    echo "A) Reiniciar todos"
-    echo "S) Seleccionar"
+    echo "I) Iniciar"
+    echo "D) Detener"
+    echo "R) Reiniciar"
+    echo "0) Volver al menú"
     echo
 
-    read -rp "Opción: " OPCION
+    read -rp "Acción: " ACCION
+
+    case "${ACCION^^}" in
+        I) COMANDO="start"; DESCRIPCION="Iniciando" ;;
+        D) COMANDO="stop"; DESCRIPCION="Deteniendo" ;;
+        R) COMANDO="restart"; DESCRIPCION="Reiniciando" ;;
+        0) return ;;
+        *) echo -e "${RED}Acción no válida.${NC}"; return ;;
+    esac
 
     echo
+    read -rp "Contenedores (ej: 1 3 5 o A para todos): " SELECCION
 
-    if [[ "$OPCION" =~ ^[Aa]$ ]]; then
+    SELECCIONADOS=()
 
-        echo -e "${CYAN}Reiniciando todos los contenedores...${NC}"
-        echo
-
-        for CONT in "${CONTENEDORES[@]}"
-        do
-
-            echo -ne "→ $CONT ... "
-
-            if docker restart "$CONT" >/dev/null 2>&1; then
-                echo -e "${GREEN}OK${NC}"
-            else
-                echo -e "${RED}ERROR${NC}"
-            fi
-
-        done
-
+    if [[ "$SELECCION" =~ ^[Aa]$ ]]; then
+        SELECCIONADOS=("${CONTENEDORES[@]}")
     else
-
-        read -rp "Números (ej: 1 3 5): " SELECCION
-
-        echo
-
         for N in $SELECCION
         do
-
-            IDX=$((N-1))
-
-            if [ "$IDX" -ge 0 ] && \
-               [ "$IDX" -lt "${#CONTENEDORES[@]}" ]; then
-
-                CONT="${CONTENEDORES[$IDX]}"
-
-                echo -ne "→ $CONT ... "
-
-                if docker restart "$CONT" >/dev/null 2>&1; then
-                    echo -e "${GREEN}OK${NC}"
-                else
-                    echo -e "${RED}ERROR${NC}"
-                fi
-
+            if ! [[ "$N" =~ ^[0-9]+$ ]]; then
+                echo -e "${YELLOW}Selección ignorada: $N${NC}"
+                continue
             fi
 
+            IDX=$((N-1))
+            if [ "$IDX" -ge 0 ] && [ "$IDX" -lt "${#CONTENEDORES[@]}" ]; then
+                SELECCIONADOS+=("${CONTENEDORES[$IDX]}")
+            else
+                echo -e "${YELLOW}Número fuera de rango: $N${NC}"
+            fi
         done
-
     fi
+
+    if [ ${#SELECCIONADOS[@]} -eq 0 ]; then
+        echo -e "${RED}No se seleccionó ningún contenedor.${NC}"
+        return
+    fi
+
+    echo
+    echo -e "${CYAN}${DESCRIPCION} contenedores...${NC}"
+    echo
+
+    for CONT in "${SELECCIONADOS[@]}"
+    do
+        echo -ne "→ $CONT ... "
+
+        if docker "$COMANDO" "$CONT" >/dev/null 2>&1; then
+            NUEVO_ESTADO=$(docker inspect --format='{{.State.Status}}' "$CONT" 2>/dev/null || echo "desconocido")
+            echo -e "${GREEN}OK${NC} (${NUEVO_ESTADO})"
+        else
+            echo -e "${RED}ERROR${NC}"
+        fi
+    done
 
     echo
     echo -e "${GREEN}Proceso finalizado.${NC}"
@@ -928,7 +968,6 @@ eliminar_red_docker() {
 
     if ! ip link show docker0 >/dev/null 2>&1; then
         echo -e "${GREEN}✅ La interfaz docker0 no existe${NC}"
-        read -rp "ENTER para continuar..."
         return
     fi
 
@@ -984,7 +1023,6 @@ eliminar_red_docker() {
     if [ "$CONFIRMAR" != "ELIMINAR" ]; then
         echo
         echo -e "${YELLOW}Operación cancelada${NC}"
-        read -rp "ENTER para continuar..."
         return
     fi
 
@@ -1019,7 +1057,6 @@ eliminar_red_docker() {
     fi
 
     echo
-    read -rp "ENTER para continuar..."
 }
 while true
 do
@@ -1037,20 +1074,18 @@ echo -e "${YELLOW} *"
 echo -e "${YELLOW}[3]${CYAN} Listar aplicaciones"
 echo -e "${YELLOW}[4]${CYAN} Instalar Docker Compose"
 echo -e "${YELLOW} *"
-echo -e "${YELLOW}[5]${RED} Eliminar Docker + Contenedor - ${YELLOW}Selección"
-echo -e "${YELLOW}[6]${RED} Eliminar Docker + Contenedor - ${YELLOW}Todos"
+echo -e "${YELLOW}[5]${YELLOW} Eliminar Docker + Contenedor - ${YELLOW}Selección"
+echo -e "${YELLOW}[6]${YELLOW} Eliminar Docker + Contenedor - ${YELLOW}Todos"
 echo -e "${YELLOW} *"
-echo -e "${YELLOW}[7]${RED} Desinstalar Docker Compose - ${YELLOW}Completo"
-echo -e "${YELLOW}[8]${RED} Eliminar Contenedores - ${YELLOW}Sin Uso"
-echo -e "${YELLOW}[9]${RED} Eliminar Red Docker - ${YELLOW}Sin Uso"
+echo -e "${YELLOW}[7]${YELLOW} Desinstalar Docker Compose - ${YELLOW}Completo"
+echo -e "${YELLOW}[8]${YELLOW} Eliminar Contenedores - ${YELLOW}Sin Uso"
+echo -e "${YELLOW}[9]${YELLOW} Eliminar Red Docker - ${YELLOW}Sin Uso"
 echo -e "${YELLOW} *"
-echo -e "${YELLOW}[10]${YELLOW} Estado de Docker ${CYAN}/ IP:PUERTO"
-echo -e "${YELLOW}[11]${YELLOW} Reiniciar Contenedores ${CYAN}/ Ver Estados"
+echo -e "${YELLOW}[10]${CYAN} Estado de Docker ${CYAN}/ IP:PUERTO"
+echo -e "${YELLOW}[11]${CYAN} Detener/Iniciar/Reiniciar Contenedores ${CYAN}/ Ver Estados"
 echo -e "${YELLOW} *"
 echo -e "${CYAN}[0]${CYAN} Salir"
 echo -e "${YELLOW} *"
-echo -ne "${CYAN}Seleccione una opción:${NC} "
-
 echo -ne "${YELLOW}Opción:${NC} "
 read -r OP
 
@@ -1099,8 +1134,8 @@ case "$OP" in
             mostrar_docker
             read -rp "ENTER..."
             ;;
- 	    11)
-            reiniciar_contenedores
+	    11)
+            gestionar_contenedores
             read -rp "ENTER..."
             ;;
 			
