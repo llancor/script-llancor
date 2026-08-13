@@ -1068,7 +1068,7 @@ echo -e "${CYAN}╔════════════════════�
 echo -e "${CYAN}║          MIGRADOR DOCKER /OPT                ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
 echo
-echo -e "${YELLOW}[1]${BLUE} Exportar aplicaciones"
+echo -e "${YELLOW}[1]${GREEN} Exportar aplicaciones"
 echo -e "${YELLOW}[2]${GREEN} Importar aplicaciones"
 echo -e "${YELLOW} *"
 echo -e "${YELLOW}[3]${CYAN} Listar aplicaciones"
