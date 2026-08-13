@@ -6,7 +6,7 @@ import { validateShifts } from './shift-rules.js';
 const allowed=['guardia','recinto','turno','ronda','entrada','reporte','alerta','relevo'] as const;
 const dateFields:Record<string,string[]>= {guardia:['fecha_ingreso'],turno:['fecha'],ronda:['fecha_hora_inicio','fecha_hora_fin'],entrada:['hora_entrada','hora_salida'],reporte:['fecha'],alerta:['fecha'],relevo:['fecha_hora']};
 const normalize=(model:string,body:any,updating=false)=>{
-  const data:any=Object.fromEntries(Object.entries(body).map(([k,v])=>[k,dateFields[model]?.includes(k)&&v?new Date(v as string):v]));
+  const data:any=Object.fromEntries(Object.entries(body).map(([k,v])=>[k,dateFields[model]?.includes(k)?(v?new Date(v as string):null):v]));
   // Las respuestas de listado pueden incluir relaciones para mostrarlas en la
   // interfaz. Nunca deben volver a Prisma como campos editables.
   for(const field of ['id','empresa_id','usuario','guardia','recinto','creador','created_at','updated_at','created_by'])delete data[field];
