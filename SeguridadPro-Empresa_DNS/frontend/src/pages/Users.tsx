@@ -6,12 +6,12 @@ import { Badge, Button, Dialog, PageHead } from '../components';
 // Catálogo predeterminado; pueden agregarse nuevos módulos a esta lista.
 const permissions = ['guardias','turnos','relevos','rondas','recintos','entradas','reportes','alertas','rrhh','usuarios'];
 const defaultGuardPermissions = new Set(['turnos','relevos','rondas','entradas','reportes','alertas']);
-const protectedModules=[['turnos','Turnos'],['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
+const protectedModules=[['turnos','Turnos'],['rondas','Rondas'],['entradas','Entradas'],['reportes','Reportes'],['alertas','Alertas']] as const;
 const roles = [['admin','Administrador'],['jefe_turno','Jefe de turno'],['guardia','Guardia']];
 const rangos = [['supervisor','Supervisor'],['guardia_senior','Guardia senior'],['guardia','Guardia'],['cabo','Cabo'],['conserje','Conserje'],['nochero','Nochero']];
 const blank = () => ({
   full_name:'', email:'', password:'', role:'guardia', rango:'guardia', telefono:'', cargo:'', enabled:true, send_invitation:false,
-  permisos:{...Object.fromEntries(permissions.map(permission=>[permission,defaultGuardPermissions.has(permission)])),editar_turnos:false,eliminar_turnos:false,editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,ver_registros:'propios'}
+  permisos:{...Object.fromEntries(permissions.map(permission=>[permission,defaultGuardPermissions.has(permission)])),editar_turnos:false,eliminar_turnos:false,editar_rondas:true,eliminar_rondas:false,editar_entradas:true,editar_reportes:true,editar_alertas:true,eliminar_entradas:false,eliminar_reportes:false,eliminar_alertas:false,ver_registros:'propios'}
 });
 
 export default function Users(){
