@@ -140,7 +140,7 @@ ejecutar_script() {
 
         echo
         echo -e "${YELLOW}[M]${NC}  Menú de administración"
-        echo -e "${YELLOW}[2]${NC}  Descargar script GitHub"
+        echo -e "${YELLOW}[D]${NC}  Descargar script GitHub"
         echo -e "${CYAN}[0]${NC}  Salir"
         echo
         read -rp "Seleccione una opción: " OPCION
@@ -149,7 +149,7 @@ ejecutar_script() {
             [Mm])
                 return 0
                 ;;
-            2)
+            [Dd])
                 descargar_script
                 echo
                 read -n1 -s -r -p "Presione una tecla para volver al lanzador..."
