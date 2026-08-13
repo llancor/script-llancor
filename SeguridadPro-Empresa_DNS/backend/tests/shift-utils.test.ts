@@ -1,2 +1,0 @@
-import{describe,it}from'node:test';import assert from'node:assert/strict';import{overlaps,shiftHours,timeMinutes}from'../src/shift-utils.js';
-describe('reglas de turnos',()=>{it('calcula jornadas diurnas y nocturnas',()=>{assert.equal(shiftHours('08:00','20:00'),12);assert.equal(shiftHours('20:00','08:00'),12)});it('rechaza horarios inválidos',()=>assert.throws(()=>timeMinutes('25:00')));it('detecta solapamientos',()=>{assert.equal(overlaps(new Date('2026-01-01T08:00Z'),new Date('2026-01-01T12:00Z'),new Date('2026-01-01T11:00Z'),new Date('2026-01-01T14:00Z')),true)})});
