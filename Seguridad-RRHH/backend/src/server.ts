@@ -21,6 +21,7 @@ app.get('/api/dashboard',auth,asyncHandler(async(req,res)=>{
 }));
 app.get('/api/lookups/recintos',auth,asyncHandler(async(req,res)=>res.json(await db.recinto.findMany({where:{estado:'Activo'},select:{id:true,nombre:true,direccion:true},orderBy:{nombre:'asc'}}))));
 app.get('/api/lookups/guardias',auth,asyncHandler(async(req,res)=>{const limited=req.user?.role!=='admin'&&req.user?.permisos?.ver_registros!=='todos'&&req.user?.guardia_id;res.json(await db.guardia.findMany({where:{estado:'Activo',...(limited?{id:req.user!.guardia_id}:{})},select:{id:true,nombre:true,documento:true,recinto_id:true,recinto_nombre:true},orderBy:{nombre:'asc'}}))}));
+app.get('/api/lookups/guardias-relevo',auth,permit('relevos'),asyncHandler(async(_req,res)=>res.json(await db.guardia.findMany({where:{estado:'Activo'},select:{id:true,nombre:true,documento:true,recinto_id:true,recinto_nombre:true},orderBy:{nombre:'asc'}}))));
 app.get('/api/users',auth,admin,asyncHandler(async(req,res)=>res.json((await db.user.findMany({orderBy:{created_at:'desc'}})).map(publicUser))));
 app.get('/api/audit',auth,admin,asyncHandler(async(req,res)=>{const limit=Math.min(500,Math.max(1,Number(req.query.limit||100)));res.json(await db.auditLog.findMany({take:limit,orderBy:{created_at:'desc'},include:{user:{select:{full_name:true,email:true}}}}))}));
 app.post('/api/users/invite',auth,admin,asyncHandler(async(req,res)=>{const {password,send_invitation,...data}=req.body;if(!password||password.length<8)return res.status(400).json({message:'La contraseña debe tener al menos 8 caracteres'});const user=await db.user.create({data:{...data,password:await bcrypt.hash(password,12),email_verified:true,enabled:data.enabled??true,must_change_password:true}});if(send_invitation)await sendEmail(user.email,'Cuenta creada en BastControl',`Tu cuenta fue creada. Ingresa con ${user.email} y la contraseña proporcionada por el administrador. Deberás cambiarla al ingresar.`);res.status(201).json(publicUser(user));}));
@@ -47,8 +48,7 @@ app.post('/api/turnos/programar',auth,permit('turnos'),manageTurnos,asyncHandler
     if(!Array.isArray(dias_semana)||!dias_semana.length)return res.status(400).json({message:'Selecciona al menos un día de trabajo'});
     const selected=[...new Set(dias_semana.map(Number))].filter(day=>Number.isInteger(day)&&day>=1&&day<=7);
     if(!selected.length)return res.status(400).json({message:'Los días seleccionados no son válidos'});
-    const monday=new Date(start);monday.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));
-    for(const day of selected.sort((a,b)=>a-b)){const date=new Date(monday);date.setUTCDate(monday.getUTCDate()+day-1);dates.push(date)}
+    for(const day of selected.sort((a,b)=>a-b)){const date=new Date(start);date.setUTCDate(start.getUTCDate()+day-1);dates.push(date)}
   }else dates.push(start);
   await validateShifts(guardia_id,dates.map(day=>({fecha:day,hora_inicio,hora_fin,horas_colacion:lunch})));
   await db.turno.createMany({data:dates.map(day=>({guardia_id,guardia_nombre,recinto_id:recinto_id||null,recinto_nombre:recinto_nombre||null,tipo_turno,fecha:day,hora_inicio,hora_fin,horas_colacion:lunch,ubicacion:ubicacion||null,observaciones:observaciones||null,estado:'Programado',created_by_id:req.user!.id}))});
