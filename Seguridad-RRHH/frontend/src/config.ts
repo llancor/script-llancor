@@ -21,17 +21,17 @@ export const modules:Record<string,Module>={
   ]},
   entradas:{key:'entrada',title:'Entradas',singular:'entrada',subtitle:'Registro de visitantes y vehículos',primary:'visitante_nombre',secondary:'detalle_horario',status:'estado',fields:[
     {name:'visitante_nombre',label:'Visitante',required:true},{name:'visitante_documento',label:'Documento'},{name:'vehiculo',label:'Vehículo'},{name:'motivo',label:'Motivo'},
-    {name:'persona_visita',label:'Persona visitada'},{name:'hora_entrada',label:'Hora entrada',type:'datetime-local',required:true},{name:'hora_salida',label:'Hora salida',type:'datetime-local'},
+    {name:'persona_visita',label:'Persona visitada'},{name:'hora_salida',label:'Hora salida',type:'datetime-local'},
     guardia,estado(['Dentro','Salio','Denegado']),recinto
   ]},
   reportes:{key:'reporte',title:'Reportes',singular:'reporte',subtitle:'Novedades, incidencias y siniestros',primary:'titulo',secondary:'detalle_evento',status:'estado',fields:[
     {name:'titulo',label:'Título',required:true},{name:'tipo',label:'Tipo',type:'select',options:['Novedad','Incidencia','Siniestro','Mantenimiento','Otro']},
-    {name:'severidad',label:'Severidad',type:'select',options:['Baja','Media','Alta','Critica']},{name:'fecha',label:'Fecha y hora',type:'datetime-local',required:true},
+    {name:'severidad',label:'Severidad',type:'select',options:['Baja','Media','Alta','Critica']},
     {name:'descripcion',label:'Descripción',type:'textarea'},{name:'ubicacion',label:'Ubicación'},guardia,estado(['Abierto','En_revision','Resuelto','Cerrado']),recinto
   ]},
   alertas:{key:'alerta',title:'Alertas',singular:'alerta',subtitle:'Eventos críticos y seguimiento',primary:'titulo',secondary:'detalle_evento',status:'estado',fields:[
     {name:'titulo',label:'Título',required:true},{name:'tipo',label:'Tipo',type:'select',options:['Intrusion','Emergencia','Sistema','Acceso_no_autorizado','Otro']},
-    {name:'nivel',label:'Nivel',type:'select',options:['Info','Advertencia','Critica']},{name:'fecha',label:'Fecha y hora',type:'datetime-local',required:true},
+    {name:'nivel',label:'Nivel',type:'select',options:['Info','Advertencia','Critica']},
     {name:'mensaje',label:'Mensaje',type:'textarea'},{name:'ubicacion',label:'Ubicación'},guardia,estado(['Activa','Atendida','Resuelta']),recinto
   ]},
   rondas:{key:'ronda',title:'Rondas',singular:'ronda',subtitle:'Patrullas, trazado GPS y novedades',primary:'guardia_nombre',secondary:'puntos_recorridos',status:'estado',fields:[

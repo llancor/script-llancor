@@ -25,7 +25,7 @@ function FollowRoute({points}:{points:Point[]}){
 
 export default function Rondas(){
   const{user}=useAuth();
-  const canEdit=user?.role==='admin'||(user?.permisos?.rondas===true&&user?.permisos?.editar_rondas===true);
+  const canEdit=user?.role==='admin'||user?.permisos?.rondas===true;
   const canDelete=user?.role==='admin'||user?.permisos?.eliminar_rondas===true;
   const[items,setItems]=useState<any[]>([]);
   const[guardias,setGuardias]=useState<any[]>([]);
