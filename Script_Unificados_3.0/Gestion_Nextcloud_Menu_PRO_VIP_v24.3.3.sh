@@ -5,8 +5,14 @@
 # ==============================================================================
 
 # ========= Colores =========
-GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; BLUE='\033[1;34m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+    # ===== COLORES =====
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'
+    WHITE='\033[1;37m'
+    GRAY='\033[0;90m'
+    NC='\033[0m'
 
 # ========= Variables =========
 NEXTCLOUD_DIR="/var/www/nextcloud"
@@ -4880,258 +4886,1584 @@ menu_adminer_webmin(){
   done
 }
 
-# ===== MÓDULO DUCKDNS PRO ULTRA =====
-menu_duckdns(){
+# =======================================================
+# DDNS PRO ULTRA MAX
+# DuckDNS + Cloudflare + No-IP
+# =======================================================
 
-# ===== COLORES =====
-RED="\e[31m"
-GREEN="\e[32m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-CYAN="\e[36m"
-BOLD="\e[1m"
-NC="\e[0m"
+menu_ddns() {
 
-DUCK_DIR="$HOME/duckdns"
+    # ===================================================
+    # COLORES
+    # ===================================================
 
-ok(){ echo -e "${GREEN}✔ $1${NC}"; }
-warn(){ echo -e "${YELLOW}⚠ $1${NC}"; }
-err(){ echo -e "${RED}✖ $1${NC}"; }
-pausa(){ read -p "Presiona Enter para continuar..." ; }
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    MAGENTA='\033[0;35m'
+    CYAN='\033[0;36m'
+    WHITE='\033[1;37m'
+    GRAY='\033[0;90m'
+    BOLD='\033[1m'
+    NC='\033[0m'
 
-# ===== IP PUBLICA =====
-ver_ip(){
-  clear
-  echo -e "${BOLD}=== IP PÚBLICA ===${NC}\n"
-  curl -s ifconfig.me
-  echo ""
-  pausa
-}
+    # ===================================================
+    # DIRECTORIOS
+    # ===================================================
 
-# ===== LISTA BASE =====
-listar_base(){
-  FILES=($DUCK_DIR/duck_*.sh)
+    DDNS_DIR="$HOME/ddns"
 
-  if [ ! -e "${FILES[0]}" ]; then
-    warn "No hay configuraciones"
-    return 1
-  fi
+    DUCK_DIR="$DDNS_DIR/duckdns"
+    CF_DIR="$DDNS_DIR/cloudflare"
+    NOIP_DIR="$DDNS_DIR/noip"
 
-  i=1
-  for f in "${FILES[@]}"; do
-    NAME=$(basename "$f" | sed 's/duck_//;s/.sh//')
-    DOMAIN=$(grep domains "$f" | cut -d= -f2 | cut -d'&' -f1)
+    mkdir -p "$DUCK_DIR"
+    mkdir -p "$CF_DIR"
+    mkdir -p "$NOIP_DIR"
 
-    if crontab -l 2>/dev/null | grep -q "duckdns-$NAME"; then
-      if crontab -l 2>/dev/null | grep "duckdns-$NAME" | grep -q "^#"; then
-        STATUS="${YELLOW}OFF${NC}"
-      else
-        STATUS="${GREEN}ON${NC}"
-      fi
-    else
-      STATUS="${RED}SIN CRON${NC}"
-    fi
+    chmod 700 "$DDNS_DIR" \
+              "$DUCK_DIR" \
+              "$CF_DIR" \
+              "$NOIP_DIR" 2>/dev/null
 
-    DNS=$(getent hosts "$DOMAIN.duckdns.org" | awk '{print $1}')
+    # ===================================================
+    # FUNCIONES GENERALES
+    # ===================================================
 
-    echo -e "$i) $NAME -> $STATUS | $DOMAIN.duckdns.org -> ${CYAN}${DNS:-NO RESUELVE}${NC}"
-    ((i++))
-  done
+    ok() {
+        echo -e "${GREEN}✔ $1${NC}"
+    }
 
-  return 0
-}
+    warn() {
+        echo -e "${YELLOW}⚠ $1${NC}"
+    }
 
-# ===== CREAR =====
-crear_duckdns(){
-  clear
-  echo -e "${BOLD}${CYAN}=== NUEVA CONFIGURACIÓN ===${NC}"
+    err() {
+        echo -e "${RED}✖ $1${NC}"
+    }
 
-  read -p "Nombre: " NAME
-  read -p "Dominio: " DOMAIN
-  read -p "Token: " TOKEN
+    pausa() {
+        echo
+        read -rp "Presiona ENTER para continuar..."
+    }
 
-  SCRIPT="$DUCK_DIR/duck_${NAME}.sh"
-  LOG="$DUCK_DIR/duck_${NAME}.log"
+    validar_nombre() {
 
-  if [ -f "$SCRIPT" ]; then
-    err "Ya existe"
-    pausa
-    return
-  fi
+        local NOMBRE="$1"
 
-  mkdir -p "$DUCK_DIR"
+        if [[ ! "$NOMBRE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            return 1
+        fi
 
-  cat <<EOF > "$SCRIPT"
-#!/bin/bash
-echo url="https://www.duckdns.org/update?domains=${DOMAIN}&token=${TOKEN}&ip=" | curl -k -o ${LOG} -K -
+        return 0
+    }
+
+    # ===================================================
+    # DEPENDENCIAS
+    # ===================================================
+
+    comprobar_dependencias() {
+
+        FALTAN=()
+
+        command -v curl >/dev/null 2>&1 || FALTAN+=("curl")
+        command -v jq >/dev/null 2>&1 || FALTAN+=("jq")
+        command -v getent >/dev/null 2>&1 || FALTAN+=("libc-bin")
+
+        if [ "${#FALTAN[@]}" -eq 0 ]; then
+            return 0
+        fi
+
+        echo
+        warn "Faltan dependencias:"
+        echo
+
+        for DEP in "${FALTAN[@]}"; do
+            echo -e " ${YELLOW}•${NC} $DEP"
+        done
+
+        echo
+        read -rp "¿Instalarlas ahora? [S/n]: " RESP
+        RESP="${RESP:-S}"
+
+        if [[ "$RESP" =~ ^[sS]$ ]]; then
+
+            apt-get update
+
+            if apt-get install -y "${FALTAN[@]}"; then
+                ok "Dependencias instaladas."
+            else
+                err "No fue posible instalar las dependencias."
+                return 1
+            fi
+
+        else
+            return 1
+        fi
+    }
+
+    # ===================================================
+    # DETECTAR IP PÚBLICA
+    # ===================================================
+
+    obtener_ip_publica() {
+
+        local IP=""
+
+        IP=$(curl -4 -fsS --max-time 8 \
+            https://api.ipify.org 2>/dev/null)
+
+        if [ -z "$IP" ]; then
+            IP=$(curl -4 -fsS --max-time 8 \
+                https://ifconfig.me 2>/dev/null)
+        fi
+
+        if [ -z "$IP" ]; then
+            IP=$(curl -4 -fsS --max-time 8 \
+                https://ipv4.icanhazip.com 2>/dev/null)
+        fi
+
+        IP=$(echo "$IP" | tr -d '[:space:]')
+
+        if [[ "$IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "$IP"
+            return 0
+        fi
+
+        return 1
+    }
+
+    ver_ip() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                 IP PÚBLICA${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        IP=$(obtener_ip_publica)
+
+        if [ -n "$IP" ]; then
+            echo -e " IP pública: ${GREEN}${IP}${NC}"
+        else
+            err "No fue posible detectar la IP pública."
+        fi
+
+        pausa
+    }
+
+    # ===================================================
+    # CRON
+    # ===================================================
+
+    agregar_cron() {
+
+        local SCRIPT="$1"
+        local ID="$2"
+        local MINUTOS="${3:-5}"
+
+        # Eliminar entrada anterior
+        (
+            crontab -l 2>/dev/null \
+                | grep -v "# ddns-${ID}$"
+
+            echo "*/${MINUTOS} * * * * $SCRIPT >/dev/null 2>&1 # ddns-${ID}"
+        ) | crontab -
+    }
+
+    activar_cron() {
+
+        local ID="$1"
+
+        crontab -l 2>/dev/null \
+            | sed "s|^#\(.*# ddns-${ID}\)$|\1|" \
+            | crontab -
+    }
+
+    desactivar_cron() {
+
+        local ID="$1"
+
+        crontab -l 2>/dev/null \
+            | sed "/# ddns-${ID}$/ {
+                /^[^#]/ s/^/#/
+            }" \
+            | crontab -
+    }
+
+    eliminar_cron() {
+
+        local ID="$1"
+
+        crontab -l 2>/dev/null \
+            | grep -v "# ddns-${ID}$" \
+            | crontab -
+    }
+
+    estado_cron() {
+
+        local ID="$1"
+        local LINEA
+
+        LINEA=$(crontab -l 2>/dev/null \
+            | grep "# ddns-${ID}$" \
+            | head -n1)
+
+        if [ -z "$LINEA" ]; then
+
+            echo -e "${RED}SIN CRON${NC}"
+
+        elif [[ "$LINEA" =~ ^# ]]; then
+
+            echo -e "${YELLOW}OFF${NC}"
+
+        else
+
+            echo -e "${GREEN}ON${NC}"
+        fi
+    }
+
+    # ===================================================
+    # CREAR DUCKDNS
+    # ===================================================
+
+    crear_duckdns() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}             NUEVO CLIENTE DUCKDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        read -rp "Nombre del cliente: " NAME
+
+        if ! validar_nombre "$NAME"; then
+            err "Nombre inválido. Usa letras, números, - o _."
+            pausa
+            return
+        fi
+
+        echo
+        read -rp "Dominio DuckDNS (ej: servidor): " DOMAIN
+
+        DOMAIN="${DOMAIN%.duckdns.org}"
+
+        echo
+        read -rsp "Token DuckDNS: " TOKEN
+        echo
+
+        if [ -z "$DOMAIN" ] || [ -z "$TOKEN" ]; then
+            err "Dominio y Token son obligatorios."
+            pausa
+            return
+        fi
+
+        echo
+        read -rp "Intervalo en minutos [5]: " INTERVALO
+        INTERVALO="${INTERVALO:-5}"
+
+        SCRIPT="$DUCK_DIR/duck_${NAME}.sh"
+        CONF="$DUCK_DIR/duck_${NAME}.conf"
+        LOG="$DUCK_DIR/duck_${NAME}.log"
+
+        if [ -e "$SCRIPT" ] || [ -e "$CONF" ]; then
+            err "Ya existe un cliente DuckDNS llamado '$NAME'."
+            pausa
+            return
+        fi
+
+        # ---------------------------------------------------
+        # CONFIGURACIÓN
+        # ---------------------------------------------------
+
+        cat > "$CONF" <<EOF
+DDNS_TYPE="DUCKDNS"
+DDNS_NAME="$NAME"
+DOMAIN="$DOMAIN"
+TOKEN="$TOKEN"
 EOF
 
-  chmod 700 "$SCRIPT"
+        chmod 600 "$CONF"
 
-  (crontab -l 2>/dev/null; echo "*/5 * * * * $SCRIPT >/dev/null 2>&1 # duckdns-$NAME") | crontab -
+        # ---------------------------------------------------
+        # SCRIPT CLIENTE
+        # ---------------------------------------------------
 
-  ok "Configuración creada"
+        cat > "$SCRIPT" <<'EOF'
+#!/bin/bash
 
-  # ejecución inmediata
-  bash "$SCRIPT"
-  sleep 1
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NAME="$(basename "$0" .sh | sed 's/^duck_//')"
 
-  if grep -q "OK" "$LOG"; then
-    ok "Primera ejecución OK"
-  else
-    err "Falló"
-    cat "$LOG"
-  fi
+CONF="$SCRIPT_DIR/duck_${NAME}.conf"
+LOG="$SCRIPT_DIR/duck_${NAME}.log"
 
-  pausa
-}
+[ -f "$CONF" ] || exit 1
 
-# ===== SELECCIONAR =====
-seleccionar_script(){
-  listar_base || return 1
-  echo ""
-  read -p "Selecciona número: " op
+source "$CONF"
 
-  FILES=($DUCK_DIR/duck_*.sh)
-  INDEX=$((op-1))
-  SCRIPT="${FILES[$INDEX]}"
+FECHA=$(date '+%Y-%m-%d %H:%M:%S')
 
-  if [ ! -f "$SCRIPT" ]; then
-    err "Opción inválida"
-    return 1
-  fi
+IP=$(curl -4 -fsS --max-time 10 https://api.ipify.org 2>/dev/null)
+IP=$(echo "$IP" | tr -d '[:space:]')
 
-  NAME=$(basename "$SCRIPT" | sed 's/duck_//;s/.sh//')
-  return 0
-}
+if [ -z "$IP" ]; then
+    echo "[$FECHA] ERROR: No se pudo obtener IP pública" >> "$LOG"
+    exit 1
+fi
 
-# ===== PROBAR UNO =====
-probar_uno(){
-  clear
-  echo -e "${BOLD}=== PROBAR CONFIGURACIÓN ===${NC}\n"
+RESP=$(curl -fsS --max-time 15 \
+    "https://www.duckdns.org/update?domains=${DOMAIN}&token=${TOKEN}&ip=${IP}" \
+    2>/dev/null)
 
-  seleccionar_script || { pausa; return; }
+if [ "$RESP" = "OK" ]; then
+    echo "[$FECHA] OK | $DOMAIN.duckdns.org -> $IP" >> "$LOG"
+    exit 0
+else
+    echo "[$FECHA] ERROR | Respuesta: $RESP" >> "$LOG"
+    exit 1
+fi
+EOF
 
-  bash "$SCRIPT"
-  sleep 1
+        chmod 700 "$SCRIPT"
 
-  cat "$DUCK_DIR/duck_${NAME}.log"
+        agregar_cron "$SCRIPT" "duckdns-${NAME}" "$INTERVALO"
 
-  pausa
-}
+        echo
+        ok "Cliente DuckDNS creado."
+        echo
+        echo -e " Nombre:      ${WHITE}${NAME}${NC}"
+        echo -e " Dominio:     ${CYAN}${DOMAIN}.duckdns.org${NC}"
+        echo -e " Intervalo:   ${YELLOW}${INTERVALO} minutos${NC}"
+        echo
 
-# ===== PROBAR TODOS =====
-probar_todos(){
-  clear
-  echo -e "${BOLD}=== PROBANDO TODOS ===${NC}\n"
+        echo -e "${CYAN}Ejecutando primera sincronización...${NC}"
+        echo
 
-  FILES=($DUCK_DIR/duck_*.sh)
+        if "$SCRIPT"; then
+            ok "Primera sincronización correcta."
+        else
+            err "La primera sincronización falló."
+        fi
 
-  for f in "${FILES[@]}"; do
-    NAME=$(basename "$f" | sed 's/duck_//;s/.sh//')
-    LOG="$DUCK_DIR/duck_${NAME}.log"
+        if [ -f "$LOG" ]; then
+            echo
+            tail -n3 "$LOG"
+        fi
 
-    echo -e "${CYAN}>>> $NAME${NC}"
-    bash "$f"
-    sleep 1
+        pausa
+    }
 
-    if grep -q "OK" "$LOG"; then
-      ok "OK"
-    else
-      err "FAIL"
-    fi
-    echo ""
-  done
+    # ===================================================
+    # CREAR CLOUDFLARE
+    # Global API Key
+    # ===================================================
 
-  pausa
-}
+    crear_cloudflare() {
 
-# ===== EDITAR =====
-editar_duckdns(){
-  clear
-  echo -e "${BOLD}=== EDITAR SCRIPT ===${NC}\n"
-  seleccionar_script || { pausa; return; }
-  nano "$SCRIPT"
-}
+        clear
 
-# ===== ACTIVAR =====
-activar_duckdns(){
-  clear
-  seleccionar_script || { pausa; return; }
-  crontab -l 2>/dev/null | sed "s/^#\(.*duckdns-$NAME\)/\1/" | crontab -
-  ok "Activado"
-  pausa
-}
+        comprobar_dependencias || {
+            pausa
+            return
+        }
 
-# ===== DESACTIVAR =====
-desactivar_duckdns(){
-  clear
-  seleccionar_script || { pausa; return; }
-  crontab -l 2>/dev/null | sed "s/^\(.*duckdns-$NAME\)/#\1/" | crontab -
-  warn "Desactivado"
-  pausa
-}
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}           NUEVO CLIENTE CLOUDFLARE${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
 
-# ===== VER LOG =====
-ver_log(){
-  clear
-  seleccionar_script || { pausa; return; }
-  cat "$DUCK_DIR/duck_${NAME}.log"
-  pausa
-}
+        read -rp "Nombre del cliente: " NAME
 
-# ===== ELIMINAR =====
-eliminar_duckdns(){
-  clear
-  seleccionar_script || { pausa; return; }
-  crontab -l 2>/dev/null | grep -v "duckdns-$NAME" | crontab -
-  rm -f "$SCRIPT" "$DUCK_DIR/duck_${NAME}.log"
-  ok "Eliminado"
-  pausa
-}
+        if ! validar_nombre "$NAME"; then
+            err "Nombre inválido."
+            pausa
+            return
+        fi
 
-# ===== EDITAR CRON DUCKDNS =====
-editar_cron(){
-  echo -e "${CYAN}Abriendo crontab con nano...${RESET}"
-  EDITOR=nano crontab -e
-}
+        echo
+        read -rp "Correo de Cloudflare: " CF_EMAIL
 
-# ===== MENÚ =====
-while true; do
-  clear
-  echo -e "${BOLD}${CYAN}=== DUCKDNS PRO ULTRA MAX ===${NC}"
-  echo -e " ${YELLOW}1)${NC} Crear Actualizacion Dinamica DuckDns"
-  echo -e " ${YELLOW}2)${NC} Listar estado + DNS"
-  echo -e " ${YELLOW}3)${NC} Probar uno"
-  echo -e " ${YELLOW}4)${NC} Probar todos"
-  echo -e " ${YELLOW}5)${NC} Activar Actualizacion Dinamica DuckDns"
-  echo -e " ${YELLOW}6)${NC} Desactivar Actualizacion Dinamica DuckDns"
-  echo -e " ${YELLOW}7)${NC} Editar Script Duckdns (lo ejecuta crontab)"
-  echo -e " ${YELLOW}8)${NC} Ver log"
-  echo -e " ${YELLOW}9)${NC} Eliminar Actualizacion de Crontab"
-  echo -e " ${YELLOW}10)${NC} Ver IP pública"
-  echo -e " ${YELLOW}11)${NC} Editar crontab"
-  echo -e " ${CYAN}0) Volver${NC}"
+        echo
+        read -rsp "Global API Key: " CF_API_KEY
+        echo
 
-  read -p "> " op
+        echo
+        read -rp "Dominio principal (ej: llancor.com): " ZONE_NAME
 
-  case $op in
-    1) crear_duckdns ;;
-    2) clear; listar_base; pausa ;;
-    3) probar_uno ;;
-    4) probar_todos ;;
-    5) activar_duckdns ;;
-    6) desactivar_duckdns ;;
-    7) editar_duckdns ;;
-    8) ver_log ;;
-    9) eliminar_duckdns ;;
-    10) ver_ip ;;
-    11) editar_cron ;;
-    0) break ;;
-    *) warn "Opcion invalida"; sleep 1 ;;
-  esac
-done
+        echo
+        read -rp "Registro a sincronizar (ej: casa.llancor.com): " RECORD_NAME
 
+        echo
+        read -rp "¿Activar Proxy Cloudflare? [s/N]: " PROXY_RESP
+
+        if [[ "$PROXY_RESP" =~ ^[sS]$ ]]; then
+            PROXIED="true"
+        else
+            PROXIED="false"
+        fi
+
+        echo
+        read -rp "Intervalo en minutos [5]: " INTERVALO
+        INTERVALO="${INTERVALO:-5}"
+
+        if [ -z "$CF_EMAIL" ] || \
+           [ -z "$CF_API_KEY" ] || \
+           [ -z "$ZONE_NAME" ] || \
+           [ -z "$RECORD_NAME" ]; then
+
+            err "Todos los datos son obligatorios."
+            pausa
+            return
+        fi
+
+        SCRIPT="$CF_DIR/cloudflare_${NAME}.sh"
+        CONF="$CF_DIR/cloudflare_${NAME}.conf"
+        LOG="$CF_DIR/cloudflare_${NAME}.log"
+
+        if [ -e "$SCRIPT" ] || [ -e "$CONF" ]; then
+            err "El cliente ya existe."
+            pausa
+            return
+        fi
+
+        echo
+        echo -e "${CYAN}Comprobando credenciales Cloudflare...${NC}"
+        echo
+
+        # ---------------------------------------------------
+        # OBTENER ZONE ID
+        # ---------------------------------------------------
+
+        RESP_ZONE=$(curl -fsS \
+            -X GET \
+            "https://api.cloudflare.com/client/v4/zones?name=${ZONE_NAME}" \
+            -H "X-Auth-Email: ${CF_EMAIL}" \
+            -H "X-Auth-Key: ${CF_API_KEY}" \
+            -H "Content-Type: application/json" \
+            2>/dev/null)
+
+        SUCCESS=$(echo "$RESP_ZONE" | jq -r '.success // false')
+
+        if [ "$SUCCESS" != "true" ]; then
+
+            err "Cloudflare rechazó la solicitud."
+
+            echo
+            echo "$RESP_ZONE" | jq -r \
+                '.errors[]? | "Error: \(.code) - \(.message)"'
+
+            pausa
+            return
+        fi
+
+        ZONE_ID=$(echo "$RESP_ZONE" \
+            | jq -r '.result[0].id // empty')
+
+        if [ -z "$ZONE_ID" ]; then
+            err "No se encontró la zona $ZONE_NAME."
+            pausa
+            return
+        fi
+
+        ok "Zona encontrada."
+        echo -e " Zone ID: ${GRAY}${ZONE_ID}${NC}"
+
+        # ---------------------------------------------------
+        # BUSCAR REGISTRO
+        # ---------------------------------------------------
+
+        RESP_RECORD=$(curl -fsS \
+            -X GET \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?type=A&name=${RECORD_NAME}" \
+            -H "X-Auth-Email: ${CF_EMAIL}" \
+            -H "X-Auth-Key: ${CF_API_KEY}" \
+            -H "Content-Type: application/json" \
+            2>/dev/null)
+
+        RECORD_ID=$(echo "$RESP_RECORD" \
+            | jq -r '.result[0].id // empty')
+
+        # ---------------------------------------------------
+        # CREAR REGISTRO SI NO EXISTE
+        # ---------------------------------------------------
+
+        if [ -z "$RECORD_ID" ]; then
+
+            echo
+            warn "El registro $RECORD_NAME no existe."
+
+            read -rp "¿Crearlo automáticamente? [s/N]: " CREAR
+
+            if [[ ! "$CREAR" =~ ^[sS]$ ]]; then
+                warn "Operación cancelada."
+                pausa
+                return
+            fi
+
+            IP=$(obtener_ip_publica)
+
+            if [ -z "$IP" ]; then
+                err "No se pudo detectar la IP pública."
+                pausa
+                return
+            fi
+
+            RESP_CREATE=$(curl -fsS \
+                -X POST \
+                "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+                -H "X-Auth-Email: ${CF_EMAIL}" \
+                -H "X-Auth-Key: ${CF_API_KEY}" \
+                -H "Content-Type: application/json" \
+                --data "{
+                    \"type\":\"A\",
+                    \"name\":\"${RECORD_NAME}\",
+                    \"content\":\"${IP}\",
+                    \"ttl\":1,
+                    \"proxied\":${PROXIED}
+                }" \
+                2>/dev/null)
+
+            SUCCESS=$(echo "$RESP_CREATE" \
+                | jq -r '.success // false')
+
+            if [ "$SUCCESS" != "true" ]; then
+
+                err "No fue posible crear el registro."
+
+                echo "$RESP_CREATE" \
+                    | jq -r '.errors[]? | "\(.code): \(.message)"'
+
+                pausa
+                return
+            fi
+
+            RECORD_ID=$(echo "$RESP_CREATE" \
+                | jq -r '.result.id')
+
+            ok "Registro creado correctamente."
+        else
+            ok "Registro DNS encontrado."
+        fi
+
+        # ---------------------------------------------------
+        # GUARDAR CONFIG
+        # ---------------------------------------------------
+
+        cat > "$CONF" <<EOF
+DDNS_TYPE="CLOUDFLARE"
+DDNS_NAME="$NAME"
+
+CF_EMAIL="$CF_EMAIL"
+CF_API_KEY="$CF_API_KEY"
+
+ZONE_NAME="$ZONE_NAME"
+ZONE_ID="$ZONE_ID"
+
+RECORD_NAME="$RECORD_NAME"
+RECORD_ID="$RECORD_ID"
+
+PROXIED="$PROXIED"
+EOF
+
+        chmod 600 "$CONF"
+
+        # ---------------------------------------------------
+        # SCRIPT CLOUDFLARE
+        # ---------------------------------------------------
+
+        cat > "$SCRIPT" <<'EOF'
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NAME="$(basename "$0" .sh | sed 's/^cloudflare_//')"
+
+CONF="$SCRIPT_DIR/cloudflare_${NAME}.conf"
+LOG="$SCRIPT_DIR/cloudflare_${NAME}.log"
+
+[ -f "$CONF" ] || exit 1
+
+source "$CONF"
+
+FECHA=$(date '+%Y-%m-%d %H:%M:%S')
+
+IP=$(curl -4 -fsS --max-time 10 \
+    https://api.ipify.org 2>/dev/null)
+
+IP=$(echo "$IP" | tr -d '[:space:]')
+
+if [ -z "$IP" ]; then
+    echo "[$FECHA] ERROR | No se pudo detectar IP pública" >> "$LOG"
+    exit 1
+fi
+
+RESP=$(curl -fsS \
+    -X GET \
+    "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+    -H "X-Auth-Email: ${CF_EMAIL}" \
+    -H "X-Auth-Key: ${CF_API_KEY}" \
+    -H "Content-Type: application/json" \
+    2>/dev/null)
+
+IP_CF=$(echo "$RESP" | jq -r '.result.content // empty')
+
+if [ "$IP_CF" = "$IP" ]; then
+
+    echo "[$FECHA] OK | Sin cambios | $RECORD_NAME -> $IP" >> "$LOG"
+    exit 0
+fi
+
+RESP_UPDATE=$(curl -fsS \
+    -X PUT \
+    "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+    -H "X-Auth-Email: ${CF_EMAIL}" \
+    -H "X-Auth-Key: ${CF_API_KEY}" \
+    -H "Content-Type: application/json" \
+    --data "{
+        \"type\":\"A\",
+        \"name\":\"${RECORD_NAME}\",
+        \"content\":\"${IP}\",
+        \"ttl\":1,
+        \"proxied\":${PROXIED}
+    }" \
+    2>/dev/null)
+
+SUCCESS=$(echo "$RESP_UPDATE" | jq -r '.success // false')
+
+if [ "$SUCCESS" = "true" ]; then
+
+    echo "[$FECHA] OK | Actualizado | $IP_CF -> $IP" >> "$LOG"
+    exit 0
+
+else
+
+    ERROR=$(echo "$RESP_UPDATE" \
+        | jq -r '.errors[0].message // "Error desconocido"')
+
+    echo "[$FECHA] ERROR | $ERROR" >> "$LOG"
+    exit 1
+fi
+EOF
+
+        chmod 700 "$SCRIPT"
+
+        agregar_cron \
+            "$SCRIPT" \
+            "cloudflare-${NAME}" \
+            "$INTERVALO"
+
+        echo
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo
+
+        ok "Cliente Cloudflare creado."
+
+        echo
+        echo -e " Nombre:       ${WHITE}${NAME}${NC}"
+        echo -e " Zona:         ${CYAN}${ZONE_NAME}${NC}"
+        echo -e " Registro:     ${CYAN}${RECORD_NAME}${NC}"
+
+        if [ "$PROXIED" = "true" ]; then
+            echo -e " Proxy:        ${GREEN}ACTIVADO${NC}"
+        else
+            echo -e " Proxy:        ${YELLOW}DESACTIVADO${NC}"
+        fi
+
+        echo -e " Intervalo:    ${YELLOW}${INTERVALO} minutos${NC}"
+
+        echo
+        echo -e "${CYAN}Ejecutando primera sincronización...${NC}"
+        echo
+
+        if "$SCRIPT"; then
+            ok "Sincronización correcta."
+        else
+            err "Falló la sincronización."
+        fi
+
+        echo
+
+        [ -f "$LOG" ] && tail -n5 "$LOG"
+
+        pausa
+    }
+
+    # ===================================================
+    # CREAR NO-IP
+    # ===================================================
+
+    crear_noip() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              NUEVO CLIENTE NO-IP${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        read -rp "Nombre del cliente: " NAME
+
+        if ! validar_nombre "$NAME"; then
+            err "Nombre inválido."
+            pausa
+            return
+        fi
+
+        echo
+        read -rp "Hostname No-IP (ej: servidor.ddns.net): " HOSTNAME
+
+        echo
+        echo -e "${GRAY}Puedes usar las credenciales DDNS / DDNS Key.${NC}"
+        echo
+
+        read -rp "Usuario / DDNS Key Username: " USERNAME
+
+        read -rsp "Contraseña / DDNS Key Password: " PASSWORD
+        echo
+
+        echo
+        read -rp "Intervalo en minutos [5]: " INTERVALO
+        INTERVALO="${INTERVALO:-5}"
+
+        if [ -z "$HOSTNAME" ] || \
+           [ -z "$USERNAME" ] || \
+           [ -z "$PASSWORD" ]; then
+
+            err "Todos los campos son obligatorios."
+            pausa
+            return
+        fi
+
+        SCRIPT="$NOIP_DIR/noip_${NAME}.sh"
+        CONF="$NOIP_DIR/noip_${NAME}.conf"
+        LOG="$NOIP_DIR/noip_${NAME}.log"
+
+        if [ -e "$SCRIPT" ] || [ -e "$CONF" ]; then
+            err "El cliente No-IP ya existe."
+            pausa
+            return
+        fi
+
+        cat > "$CONF" <<EOF
+DDNS_TYPE="NOIP"
+DDNS_NAME="$NAME"
+HOSTNAME="$HOSTNAME"
+USERNAME="$USERNAME"
+PASSWORD="$PASSWORD"
+EOF
+
+        chmod 600 "$CONF"
+
+        # ---------------------------------------------------
+        # SCRIPT NO-IP
+        # ---------------------------------------------------
+
+        cat > "$SCRIPT" <<'EOF'
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NAME="$(basename "$0" .sh | sed 's/^noip_//')"
+
+CONF="$SCRIPT_DIR/noip_${NAME}.conf"
+LOG="$SCRIPT_DIR/noip_${NAME}.log"
+
+[ -f "$CONF" ] || exit 1
+
+source "$CONF"
+
+FECHA=$(date '+%Y-%m-%d %H:%M:%S')
+
+IP=$(curl -4 -fsS --max-time 10 \
+    https://api.ipify.org 2>/dev/null)
+
+IP=$(echo "$IP" | tr -d '[:space:]')
+
+if [ -z "$IP" ]; then
+    echo "[$FECHA] ERROR | No se pudo detectar IP pública" >> "$LOG"
+    exit 1
+fi
+
+RESP=$(curl -fsS \
+    --max-time 20 \
+    --user "${USERNAME}:${PASSWORD}" \
+    -A "LLANCOR-DDNS-Client/1.0 admin@example.invalid" \
+    "https://dynupdate.no-ip.com/nic/update?hostname=${HOSTNAME}&myip=${IP}" \
+    2>/dev/null)
+
+case "$RESP" in
+
+    good*)
+        echo "[$FECHA] OK | Actualizado | $RESP" >> "$LOG"
+        exit 0
+    ;;
+
+    nochg*)
+        echo "[$FECHA] OK | Sin cambios | $RESP" >> "$LOG"
+        exit 0
+    ;;
+
+    badauth*)
+        echo "[$FECHA] ERROR | Credenciales incorrectas" >> "$LOG"
+        exit 1
+    ;;
+
+    nohost*)
+        echo "[$FECHA] ERROR | Hostname inexistente" >> "$LOG"
+        exit 1
+    ;;
+
+    abuse*)
+        echo "[$FECHA] ERROR | Cliente bloqueado por No-IP" >> "$LOG"
+        exit 1
+    ;;
+
+    911*)
+        echo "[$FECHA] ERROR | Servicio No-IP temporalmente no disponible" >> "$LOG"
+        exit 1
+    ;;
+
+    *)
+        echo "[$FECHA] ERROR | Respuesta: $RESP" >> "$LOG"
+        exit 1
+    ;;
+esac
+EOF
+
+        chmod 700 "$SCRIPT"
+
+        agregar_cron \
+            "$SCRIPT" \
+            "noip-${NAME}" \
+            "$INTERVALO"
+
+        echo
+        ok "Cliente No-IP creado."
+
+        echo
+        echo -e " Nombre:       ${WHITE}${NAME}${NC}"
+        echo -e " Hostname:     ${CYAN}${HOSTNAME}${NC}"
+        echo -e " Intervalo:    ${YELLOW}${INTERVALO} minutos${NC}"
+
+        echo
+        echo -e "${CYAN}Ejecutando primera sincronización...${NC}"
+        echo
+
+        if "$SCRIPT"; then
+            ok "Primera sincronización correcta."
+        else
+            err "La primera sincronización falló."
+        fi
+
+        echo
+
+        [ -f "$LOG" ] && tail -n5 "$LOG"
+
+        pausa
+    }
+
+    # ===================================================
+    # OBTENER TODOS LOS CLIENTES
+    # ===================================================
+
+    obtener_clientes() {
+
+        CLIENTES=()
+        CLIENTES_TIPO=()
+        CLIENTES_NOMBRE=()
+
+        shopt -s nullglob
+
+        for SCRIPT in "$DUCK_DIR"/duck_*.sh; do
+
+            NAME=$(basename "$SCRIPT" .sh)
+            NAME="${NAME#duck_}"
+
+            CLIENTES+=("$SCRIPT")
+            CLIENTES_TIPO+=("DUCKDNS")
+            CLIENTES_NOMBRE+=("$NAME")
+        done
+
+        for SCRIPT in "$CF_DIR"/cloudflare_*.sh; do
+
+            NAME=$(basename "$SCRIPT" .sh)
+            NAME="${NAME#cloudflare_}"
+
+            CLIENTES+=("$SCRIPT")
+            CLIENTES_TIPO+=("CLOUDFLARE")
+            CLIENTES_NOMBRE+=("$NAME")
+        done
+
+        for SCRIPT in "$NOIP_DIR"/noip_*.sh; do
+
+            NAME=$(basename "$SCRIPT" .sh)
+            NAME="${NAME#noip_}"
+
+            CLIENTES+=("$SCRIPT")
+            CLIENTES_TIPO+=("NOIP")
+            CLIENTES_NOMBRE+=("$NAME")
+        done
+
+        shopt -u nullglob
+    }
+
+    # ===================================================
+    # LISTAR CLIENTES
+    # ===================================================
+
+    listar_clientes() {
+
+        obtener_clientes
+
+        echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                       CLIENTES DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════════════════════════════${NC}"
+        echo
+
+        if [ "${#CLIENTES[@]}" -eq 0 ]; then
+            warn "No hay clientes DDNS configurados."
+            return 1
+        fi
+
+        for i in "${!CLIENTES[@]}"; do
+
+            NUM=$((i + 1))
+
+            SCRIPT="${CLIENTES[$i]}"
+            TIPO="${CLIENTES_TIPO[$i]}"
+            NAME="${CLIENTES_NOMBRE[$i]}"
+
+            case "$TIPO" in
+
+                DUCKDNS)
+
+                    CONF="$DUCK_DIR/duck_${NAME}.conf"
+
+                    source "$CONF"
+
+                    HOST="${DOMAIN}.duckdns.org"
+
+                    ID="duckdns-${NAME}"
+                ;;
+
+                CLOUDFLARE)
+
+                    CONF="$CF_DIR/cloudflare_${NAME}.conf"
+
+                    source "$CONF"
+
+                    HOST="$RECORD_NAME"
+
+                    ID="cloudflare-${NAME}"
+                ;;
+
+                NOIP)
+
+                    CONF="$NOIP_DIR/noip_${NAME}.conf"
+
+                    source "$CONF"
+
+                    HOST="$HOSTNAME"
+
+                    ID="noip-${NAME}"
+                ;;
+
+            esac
+
+            STATUS=$(estado_cron "$ID")
+
+            DNS=$(getent ahostsv4 "$HOST" 2>/dev/null \
+                | awk 'NR==1 {print $1}')
+
+            [ -z "$DNS" ] && DNS="NO RESUELVE"
+
+            case "$TIPO" in
+
+                DUCKDNS)
+                    COLOR_TIPO="$GREEN"
+                ;;
+
+                CLOUDFLARE)
+                    COLOR_TIPO="$YELLOW"
+                ;;
+
+                NOIP)
+                    COLOR_TIPO="$CYAN"
+                ;;
+
+            esac
+
+            printf "${YELLOW}%2d)${NC} " "$NUM"
+
+            echo -e \
+"${COLOR_TIPO}${TIPO}${NC} | ${WHITE}${NAME}${NC} | ${STATUS} | ${HOST} -> ${CYAN}${DNS}${NC}"
+        done
+
+        echo
+        return 0
+    }
+
+    # ===================================================
+    # SELECCIONAR CLIENTE
+    # ===================================================
+
+    seleccionar_cliente() {
+
+        listar_clientes || return 1
+
+        read -rp "Selecciona número [0 cancelar]: " OP
+
+        if [ "$OP" = "0" ]; then
+            return 1
+        fi
+
+        if [[ ! "$OP" =~ ^[0-9]+$ ]]; then
+            err "Selección inválida."
+            return 1
+        fi
+
+        INDEX=$((OP - 1))
+
+        if [ "$INDEX" -lt 0 ] || \
+           [ "$INDEX" -ge "${#CLIENTES[@]}" ]; then
+
+            err "Selección fuera de rango."
+            return 1
+        fi
+
+        SCRIPT="${CLIENTES[$INDEX]}"
+        TIPO="${CLIENTES_TIPO[$INDEX]}"
+        NAME="${CLIENTES_NOMBRE[$INDEX]}"
+
+        case "$TIPO" in
+
+            DUCKDNS)
+                CONF="$DUCK_DIR/duck_${NAME}.conf"
+                LOG="$DUCK_DIR/duck_${NAME}.log"
+                ID="duckdns-${NAME}"
+            ;;
+
+            CLOUDFLARE)
+                CONF="$CF_DIR/cloudflare_${NAME}.conf"
+                LOG="$CF_DIR/cloudflare_${NAME}.log"
+                ID="cloudflare-${NAME}"
+            ;;
+
+            NOIP)
+                CONF="$NOIP_DIR/noip_${NAME}.conf"
+                LOG="$NOIP_DIR/noip_${NAME}.log"
+                ID="noip-${NAME}"
+            ;;
+
+        esac
+
+        return 0
+    }
+
+    # ===================================================
+    # PROBAR CLIENTE
+    # ===================================================
+
+    probar_uno() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}               PROBAR CLIENTE DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        echo
+        echo -e " Cliente:  ${WHITE}${NAME}${NC}"
+        echo -e " Tipo:     ${CYAN}${TIPO}${NC}"
+        echo
+
+        echo -e "${CYAN}Ejecutando sincronización...${NC}"
+        echo
+
+        if "$SCRIPT"; then
+            ok "Sincronización correcta."
+        else
+            err "Falló la sincronización."
+        fi
+
+        echo
+
+        if [ -f "$LOG" ]; then
+            echo -e "${WHITE}Último resultado:${NC}"
+            echo
+            tail -n5 "$LOG"
+        fi
+
+        pausa
+    }
+
+    # ===================================================
+    # PROBAR TODOS
+    # ===================================================
+
+    probar_todos() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}             PROBANDO TODOS LOS DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        obtener_clientes
+
+        if [ "${#CLIENTES[@]}" -eq 0 ]; then
+            warn "No hay clientes configurados."
+            pausa
+            return
+        fi
+
+        OK_TOTAL=0
+        ERROR_TOTAL=0
+
+        for i in "${!CLIENTES[@]}"; do
+
+            SCRIPT="${CLIENTES[$i]}"
+            TIPO="${CLIENTES_TIPO[$i]}"
+            NAME="${CLIENTES_NOMBRE[$i]}"
+
+            echo -e "${CYAN}>>> ${TIPO} / ${NAME}${NC}"
+
+            if "$SCRIPT"; then
+
+                ok "Sincronización OK"
+                ((OK_TOTAL++))
+
+            else
+
+                err "Sincronización FALLÓ"
+                ((ERROR_TOTAL++))
+
+            fi
+
+            echo
+        done
+
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo
+        echo -e " Correctos: ${GREEN}${OK_TOTAL}${NC}"
+        echo -e " Errores:   ${RED}${ERROR_TOTAL}${NC}"
+
+        pausa
+    }
+
+    # ===================================================
+    # ACTIVAR CLIENTE
+    # ===================================================
+
+    activar_cliente() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}               ACTIVAR CLIENTE${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        activar_cron "$ID"
+
+        echo
+        ok "$TIPO / $NAME activado."
+
+        pausa
+    }
+
+    # ===================================================
+    # DESACTIVAR CLIENTE
+    # ===================================================
+
+    desactivar_cliente() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              DESACTIVAR CLIENTE${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        desactivar_cron "$ID"
+
+        echo
+        warn "$TIPO / $NAME desactivado."
+
+        pausa
+    }
+
+    # ===================================================
+    # EDITAR CONFIGURACIÓN
+    # ===================================================
+
+    editar_cliente() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              EDITAR CLIENTE DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        echo
+        warn "El archivo contiene credenciales privadas."
+        echo
+
+        read -rp "¿Abrir configuración con nano? [s/N]: " RESP
+
+        if [[ "$RESP" =~ ^[sS]$ ]]; then
+            nano "$CONF"
+            chmod 600 "$CONF"
+        fi
+    }
+
+    # ===================================================
+    # VER LOG
+    # ===================================================
+
+    ver_log() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                  LOG DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}${TIPO} - ${NAME}${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if [ -f "$LOG" ]; then
+            tail -n50 "$LOG"
+        else
+            warn "Todavía no existe archivo de log."
+        fi
+
+        pausa
+    }
+
+    # ===================================================
+    # ELIMINAR CLIENTE
+    # ===================================================
+
+    eliminar_cliente() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}               ELIMINAR CLIENTE${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        seleccionar_cliente || {
+            pausa
+            return
+        }
+
+        echo
+        echo -e " Tipo:    ${CYAN}${TIPO}${NC}"
+        echo -e " Cliente: ${WHITE}${NAME}${NC}"
+        echo
+
+        read -rp "¿Eliminar este cliente? [s/N]: " RESP
+
+        if [[ ! "$RESP" =~ ^[sS]$ ]]; then
+            warn "Operación cancelada."
+            pausa
+            return
+        fi
+
+        eliminar_cron "$ID"
+
+        rm -f "$SCRIPT" "$CONF" "$LOG"
+
+        echo
+        ok "Cliente eliminado correctamente."
+
+        pausa
+    }
+
+    # ===================================================
+    # EDITAR CRONTAB
+    # ===================================================
+
+    editar_cron() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                 EDITAR CRONTAB${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        warn "Solo modifica entradas si sabes lo que estás haciendo."
+        echo
+
+        pausa_previa=""
+
+        EDITOR=nano crontab -e
+    }
+
+    # ===================================================
+    # VER CRONTAB DDNS
+    # ===================================================
+
+    ver_cron_ddns() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}               CRONTAB DDNS${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        CRON_DDNS=$(crontab -l 2>/dev/null \
+            | grep "# ddns-" || true)
+
+        if [ -z "$CRON_DDNS" ]; then
+
+            warn "No existen entradas DDNS en crontab."
+
+        else
+
+            echo "$CRON_DDNS"
+        fi
+
+        pausa
+    }
+
+    # ===================================================
+    # MIGRAR ANTIGUOS DUCKDNS
+    # ===================================================
+
+    detectar_duckdns_antiguo() {
+
+        OLD_DIR="$HOME/duckdns"
+
+        if [ ! -d "$OLD_DIR" ]; then
+            return
+        fi
+
+        shopt -s nullglob
+        OLD_FILES=("$OLD_DIR"/duck_*.sh)
+        shopt -u nullglob
+
+        if [ "${#OLD_FILES[@]}" -eq 0 ]; then
+            return
+        fi
+
+        echo
+        warn "Se detectaron configuraciones DuckDNS antiguas en:"
+        echo
+        echo -e " ${WHITE}${OLD_DIR}${NC}"
+        echo
+
+        read -rp "¿Mantenerlas sin modificar? [S/n]: " R
+
+        R="${R:-S}"
+
+        if [[ "$R" =~ ^[sS]$ ]]; then
+            return
+        fi
+    }
+
+    # ===================================================
+    # MENÚ PRINCIPAL
+    # ===================================================
+
+    while true; do
+
+        clear
+
+        obtener_clientes
+
+        TOTAL_CLIENTES="${#CLIENTES[@]}"
+
+        TOTAL_ON=0
+        TOTAL_OFF=0
+
+        for i in "${!CLIENTES[@]}"; do
+
+            TIPO="${CLIENTES_TIPO[$i]}"
+            NAME="${CLIENTES_NOMBRE[$i]}"
+
+            case "$TIPO" in
+                DUCKDNS)
+                    ID="duckdns-${NAME}"
+                ;;
+                CLOUDFLARE)
+                    ID="cloudflare-${NAME}"
+                ;;
+                NOIP)
+                    ID="noip-${NAME}"
+                ;;
+            esac
+
+            LINEA=$(crontab -l 2>/dev/null \
+                | grep "# ddns-${ID}$" \
+                | head -n1)
+
+            if [ -z "$LINEA" ]; then
+
+                ((TOTAL_OFF++))
+
+            elif [[ "$LINEA" =~ ^# ]]; then
+
+                ((TOTAL_OFF++))
+
+            else
+
+                ((TOTAL_ON++))
+            fi
+        done
+
+        echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                DDNS PRO ULTRA MAX${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════════${NC}"
+        echo
+
+        echo -e " Clientes: ${WHITE}${TOTAL_CLIENTES}${NC} | ${GREEN}Activos: ${TOTAL_ON}${NC} | ${YELLOW}Inactivos: ${TOTAL_OFF}${NC}"
+
+        echo
+        echo -e "${CYAN}──────────── CREAR CLIENTE DDNS ─────────────${NC}"
+        echo
+
+        echo -e " ${YELLOW}1)${NC} Crear cliente de sincronización ${GREEN}DuckDNS${NC}"
+        echo -e " ${YELLOW}2)${NC} Crear cliente de sincronización ${YELLOW}Cloudflare${NC}"
+        echo -e " ${YELLOW}3)${NC} Crear cliente de sincronización ${CYAN}No-IP${NC}"
+
+        echo
+        echo -e "${CYAN}──────────── ADMINISTRACIÓN ─────────────────${NC}"
+        echo
+
+        echo -e " ${YELLOW}4)${NC} Listar clientes + estado + DNS"
+        echo -e " ${YELLOW}5)${NC} Probar cliente"
+        echo -e " ${YELLOW}6)${NC} Probar TODOS"
+        echo -e " ${YELLOW}7)${NC} Activar cliente"
+        echo -e " ${YELLOW}8)${NC} Desactivar cliente"
+        echo -e " ${YELLOW}9)${NC} Editar configuración"
+        echo -e "${YELLOW}10)${NC} Ver log"
+        echo -e "${YELLOW}11)${NC} Eliminar cliente"
+
+        echo
+        echo -e "${CYAN}──────────── HERRAMIENTAS ───────────────────${NC}"
+        echo
+
+        echo -e "${YELLOW}12)${NC} Ver IP pública"
+        echo -e "${YELLOW}13)${NC} Ver cron DDNS"
+        echo -e "${YELLOW}14)${NC} Editar crontab"
+
+        echo
+        echo -e " ${CYAN}0)${NC} Volver"
+        echo
+
+        read -rp "Selecciona una opción: " OP
+
+        case "$OP" in
+
+            1)
+                crear_duckdns
+            ;;
+
+            2)
+                crear_cloudflare
+            ;;
+
+            3)
+                crear_noip
+            ;;
+
+            4)
+                clear
+                listar_clientes
+                pausa
+            ;;
+
+            5)
+                probar_uno
+            ;;
+
+            6)
+                probar_todos
+            ;;
+
+            7)
+                activar_cliente
+            ;;
+
+            8)
+                desactivar_cliente
+            ;;
+
+            9)
+                editar_cliente
+            ;;
+
+            10)
+                ver_log
+            ;;
+
+            11)
+                eliminar_cliente
+            ;;
+
+            12)
+                ver_ip
+            ;;
+
+            13)
+                ver_cron_ddns
+            ;;
+
+            14)
+                editar_cron
+            ;;
+
+            0)
+                break
+            ;;
+
+            *)
+                echo
+                warn "Opción inválida."
+                sleep 1
+            ;;
+        esac
+    done
 }
 
 # ========= VARIABLES (AJUSTAR SI ES NECESARIO) =========
@@ -5962,152 +7294,883 @@ menu_swap() {
 }
 
 # =======================================================
-# FAIL2BAN PRO QUITA BANEO DE IP
+# FAIL2BAN PRO - GESTIÓN COMPLETA
 # =======================================================
 
-menu_fail2ban(){
+menu_fail2ban() {
 
-    # ===== COLORES =====
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
+    JAIL="sshd"
 
-    pausar(){ read -p "ENTER para continuar..."; }
+    pausar() {
+        echo
+        read -rp "Presiona ENTER para continuar..."
+    }
+
+    # ===================================================
+    # OBTENER IPs BANEADAS
+    # ===================================================
+    obtener_ips_baneadas() {
+
+        IPS_BANEADAS=()
+
+        if ! systemctl is-active --quiet fail2ban 2>/dev/null; then
+            return
+        fi
+
+        while IFS= read -r ip; do
+            [ -n "$ip" ] && IPS_BANEADAS+=("$ip")
+        done < <(
+            fail2ban-client status "$JAIL" 2>/dev/null \
+            | sed -n 's/.*Banned IP list:[[:space:]]*//p' \
+            | tr ' ' '\n' \
+            | sed '/^$/d'
+        )
+    }
+
+    # ===================================================
+    # MOSTRAR IPs BANEADAS
+    # ===================================================
+    mostrar_ips_baneadas() {
+
+        if ! systemctl is-active --quiet fail2ban; then
+            echo
+            echo -e "${RED}✘ Fail2Ban está detenido.${NC}"
+            return 1
+        fi
+
+        obtener_ips_baneadas
+
+        echo
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}          IPs BANEADAS - ${YELLOW}${JAIL}${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if [ "${#IPS_BANEADAS[@]}" -eq 0 ]; then
+            echo -e "${GREEN}✓ No existen IPs baneadas actualmente.${NC}"
+            return 1
+        fi
+
+        echo -e "${WHITE}Total baneadas:${NC} ${RED}${#IPS_BANEADAS[@]}${NC}"
+        echo
+
+        for i in "${!IPS_BANEADAS[@]}"; do
+            printf "${YELLOW}%2d)${NC} ${RED}%s${NC}\n" \
+                "$((i + 1))" "${IPS_BANEADAS[$i]}"
+        done
+
+        echo
+        return 0
+    }
+
+    # ===================================================
+    # DESBANEAR IP
+    # ===================================================
+    desbanear_ip() {
+
+        local IP="$1"
+
+        if fail2ban-client set "$JAIL" unbanip "$IP" >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ ${IP} desbaneada correctamente.${NC}"
+            return 0
+        else
+            echo -e "${RED}✘ Error al desbanear ${IP}.${NC}"
+            return 1
+        fi
+    }
+
+    # ===================================================
+    # DESBANEAR POR SELECCIÓN
+    # ===================================================
+    seleccionar_ip_desbanear() {
+
+        clear
+
+        if ! mostrar_ips_baneadas; then
+            pausar
+            return
+        fi
+
+        echo -e "${WHITE}Selección:${NC}"
+        echo
+        echo -e " ${YELLOW}•${NC} Una IP:       ${WHITE}2${NC}"
+        echo -e " ${YELLOW}•${NC} Varias IP:     ${WHITE}1 3 5${NC}"
+        echo -e " ${YELLOW}•${NC} Rango:         ${WHITE}1-4${NC}"
+        echo -e " ${YELLOW}•${NC} Todas:         ${WHITE}T${NC}"
+        echo -e " ${YELLOW}•${NC} Cancelar:      ${WHITE}0${NC}"
+        echo
+
+        read -rp "Selecciona IP(s): " SELECCION
+
+        case "${SELECCION,,}" in
+            0)
+                return
+            ;;
+            t|todo|todos|todas)
+                desbanear_todas
+                return
+            ;;
+        esac
+
+        SELECCION_EXPANDIDA=""
+
+        for ITEM in $SELECCION; do
+
+            if [[ "$ITEM" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+
+                INICIO="${BASH_REMATCH[1]}"
+                FIN="${BASH_REMATCH[2]}"
+
+                if [ "$INICIO" -gt "$FIN" ]; then
+                    echo -e "${RED}✘ Rango inválido: $ITEM${NC}"
+                    continue
+                fi
+
+                for ((N=INICIO; N<=FIN; N++)); do
+                    SELECCION_EXPANDIDA+=" $N"
+                done
+
+            elif [[ "$ITEM" =~ ^[0-9]+$ ]]; then
+
+                SELECCION_EXPANDIDA+=" $ITEM"
+
+            else
+                echo -e "${RED}✘ Selección inválida: $ITEM${NC}"
+            fi
+        done
+
+        echo
+
+        OK=0
+        ERROR=0
+
+        for NUM in $SELECCION_EXPANDIDA; do
+
+            if [ "$NUM" -lt 1 ] || \
+               [ "$NUM" -gt "${#IPS_BANEADAS[@]}" ]; then
+
+                echo -e "${RED}✘ Número fuera de rango: $NUM${NC}"
+                ((ERROR++))
+                continue
+            fi
+
+            IP="${IPS_BANEADAS[$((NUM - 1))]}"
+
+            if desbanear_ip "$IP"; then
+                ((OK++))
+            else
+                ((ERROR++))
+            fi
+        done
+
+        echo
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo -e "${GREEN}Desbaneadas:${NC} $OK"
+        echo -e "${RED}Errores:${NC}     $ERROR"
+
+        pausar
+    }
+
+    # ===================================================
+    # DESBANEAR TODAS
+    # ===================================================
+    desbanear_todas() {
+
+        obtener_ips_baneadas
+
+        if [ "${#IPS_BANEADAS[@]}" -eq 0 ]; then
+            echo
+            echo -e "${GREEN}✓ No existen IPs baneadas.${NC}"
+            pausar
+            return
+        fi
+
+        echo
+        echo -e "${YELLOW}Se desbanearán ${RED}${#IPS_BANEADAS[@]}${YELLOW} IP(s).${NC}"
+        echo
+
+        read -rp "¿Continuar? [s/N]: " CONFIRMAR
+
+        if [[ ! "$CONFIRMAR" =~ ^[sS]$ ]]; then
+            echo
+            echo -e "${YELLOW}Operación cancelada.${NC}"
+            pausar
+            return
+        fi
+
+        echo
+
+        OK=0
+        ERROR=0
+
+        for IP in "${IPS_BANEADAS[@]}"; do
+
+            if fail2ban-client set "$JAIL" unbanip "$IP" >/dev/null 2>&1; then
+                echo -e "${GREEN}✓${NC} $IP"
+                ((OK++))
+            else
+                echo -e "${RED}✘${NC} $IP"
+                ((ERROR++))
+            fi
+        done
+
+        echo
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                 RESULTADO${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+        echo -e "${GREEN}Desbaneadas:${NC} $OK"
+        echo -e "${RED}Errores:${NC}     $ERROR"
+
+        pausar
+    }
+
+    # ===================================================
+    # DESBANEAR IP MANUAL
+    # ===================================================
+    desbanear_manual() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}             DESBANEAR IP MANUAL${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        read -rp "Ingresa IP a desbanear: " IP
+
+        if [[ ! "$IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo
+            echo -e "${RED}✘ Formato de IP inválido.${NC}"
+            pausar
+            return
+        fi
+
+        IFS='.' read -r O1 O2 O3 O4 <<< "$IP"
+
+        for OCTETO in "$O1" "$O2" "$O3" "$O4"; do
+            if [ "$OCTETO" -gt 255 ]; then
+                echo
+                echo -e "${RED}✘ Dirección IP inválida.${NC}"
+                pausar
+                return
+            fi
+        done
+
+        echo
+
+        obtener_ips_baneadas
+
+        ESTA_BANEADA=0
+
+        for IP_BANEADA in "${IPS_BANEADAS[@]}"; do
+            if [ "$IP_BANEADA" = "$IP" ]; then
+                ESTA_BANEADA=1
+                break
+            fi
+        done
+
+        if [ "$ESTA_BANEADA" -eq 0 ]; then
+            echo -e "${YELLOW}⚠ La IP ${WHITE}${IP}${YELLOW} no está baneada.${NC}"
+        else
+            desbanear_ip "$IP"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # DESBANEAR MI IP
+    # IP PÚBLICA + IP LOCAL DEL CLIENTE SSH
+    # ===================================================
+    desbanear_mi_ip() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}          DESBANEAR MIS DIRECCIONES IP${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if ! systemctl is-active --quiet fail2ban; then
+            echo -e "${RED}✘ Fail2Ban está detenido.${NC}"
+            pausar
+            return
+        fi
+
+        IP_PUBLICA=""
+        IP_SSH=""
+        IP_SERVIDOR=""
+
+        echo -e "${CYAN}Detectando direcciones IP...${NC}"
+        echo
+
+        # IP pública
+        if command -v curl >/dev/null 2>&1; then
+
+            IP_PUBLICA=$(curl -4 -fsS --max-time 5 \
+                https://api.ipify.org 2>/dev/null)
+
+            if [ -z "$IP_PUBLICA" ]; then
+                IP_PUBLICA=$(curl -4 -fsS --max-time 5 \
+                    https://ifconfig.me 2>/dev/null)
+            fi
+        fi
+
+        # IP del cliente SSH
+        if [ -n "$SSH_CLIENT" ]; then
+
+            IP_SSH=$(echo "$SSH_CLIENT" | awk '{print $1}')
+
+        elif [ -n "$SSH_CONNECTION" ]; then
+
+            IP_SSH=$(echo "$SSH_CONNECTION" | awk '{print $1}')
+
+        fi
+
+        # IP local del servidor
+        IP_SERVIDOR=$(ip route get 1.1.1.1 2>/dev/null \
+            | awk '{
+                for(i=1;i<=NF;i++)
+                    if($i=="src")
+                        print $(i+1)
+            }' \
+            | head -n1)
+
+        echo -e "${WHITE}Direcciones detectadas:${NC}"
+        echo
+
+        if [ -n "$IP_PUBLICA" ]; then
+            echo -e " ${YELLOW}IP pública:${NC}       ${WHITE}${IP_PUBLICA}${NC}"
+        else
+            echo -e " ${YELLOW}IP pública:${NC}       ${RED}No detectada${NC}"
+        fi
+
+        if [ -n "$IP_SSH" ]; then
+            echo -e " ${YELLOW}IP cliente SSH:${NC}   ${WHITE}${IP_SSH}${NC}"
+        else
+            echo -e " ${YELLOW}IP cliente SSH:${NC}   ${GRAY}No detectada${NC}"
+        fi
+
+        if [ -n "$IP_SERVIDOR" ]; then
+            echo -e " ${YELLOW}IP servidor:${NC}      ${WHITE}${IP_SERVIDOR}${NC}"
+        fi
+
+        echo
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo
+        echo -e "${WHITE}Revisando baneos...${NC}"
+        echo
+
+        obtener_ips_baneadas
+
+        IPS_A_REVISAR=()
+
+        # Evitar duplicados
+        agregar_ip_revisar() {
+
+            local NUEVA_IP="$1"
+
+            [ -z "$NUEVA_IP" ] && return
+
+            for IP_EXISTENTE in "${IPS_A_REVISAR[@]}"; do
+                [ "$IP_EXISTENTE" = "$NUEVA_IP" ] && return
+            done
+
+            IPS_A_REVISAR+=("$NUEVA_IP")
+        }
+
+        agregar_ip_revisar "$IP_PUBLICA"
+        agregar_ip_revisar "$IP_SSH"
+
+        DESBANEADAS=0
+        NO_BANEADAS=0
+        ERRORES=0
+
+        IPS_DESBANEADAS=()
+        IPS_NO_BANEADAS=()
+        IPS_ERROR=()
+
+        if [ "${#IPS_A_REVISAR[@]}" -eq 0 ]; then
+            echo -e "${RED}✘ No se pudo detectar ninguna IP.${NC}"
+            pausar
+            return
+        fi
+
+        for IP_OBJETIVO in "${IPS_A_REVISAR[@]}"; do
+
+            ESTA_BANEADA=0
+
+            for IP_BANEADA in "${IPS_BANEADAS[@]}"; do
+                if [ "$IP_BANEADA" = "$IP_OBJETIVO" ]; then
+                    ESTA_BANEADA=1
+                    break
+                fi
+            done
+
+            if [ "$ESTA_BANEADA" -eq 1 ]; then
+
+                echo -e "${YELLOW}⚠ ${IP_OBJETIVO}${NC} está baneada."
+
+                if fail2ban-client set "$JAIL" \
+                    unbanip "$IP_OBJETIVO" >/dev/null 2>&1; then
+
+                    echo -e "${GREEN}✓ ${IP_OBJETIVO} desbaneada correctamente.${NC}"
+
+                    IPS_DESBANEADAS+=("$IP_OBJETIVO")
+                    ((DESBANEADAS++))
+
+                else
+
+                    echo -e "${RED}✘ Error al desbanear ${IP_OBJETIVO}.${NC}"
+
+                    IPS_ERROR+=("$IP_OBJETIVO")
+                    ((ERRORES++))
+                fi
+
+            else
+
+                echo -e "${GREEN}✓ ${IP_OBJETIVO}${NC} no estaba baneada."
+
+                IPS_NO_BANEADAS+=("$IP_OBJETIVO")
+                ((NO_BANEADAS++))
+            fi
+
+            echo
+        done
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                 RESULTADO${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if [ -n "$IP_PUBLICA" ]; then
+            echo -e "${YELLOW}IP pública revisada:${NC}     $IP_PUBLICA"
+        fi
+
+        if [ -n "$IP_SSH" ]; then
+            echo -e "${YELLOW}IP local SSH revisada:${NC}   $IP_SSH"
+        fi
+
+        echo
+
+        if [ "$DESBANEADAS" -gt 0 ]; then
+
+            echo -e "${GREEN}IPs desbaneadas:${NC}"
+
+            for IP in "${IPS_DESBANEADAS[@]}"; do
+                echo -e " ${GREEN}✓${NC} $IP"
+            done
+
+            echo
+        fi
+
+        if [ "$NO_BANEADAS" -gt 0 ]; then
+
+            echo -e "${YELLOW}IPs que no estaban baneadas:${NC}"
+
+            for IP in "${IPS_NO_BANEADAS[@]}"; do
+                echo -e " ${YELLOW}•${NC} $IP"
+            done
+
+            echo
+        fi
+
+        if [ "$ERRORES" -gt 0 ]; then
+
+            echo -e "${RED}IPs con error:${NC}"
+
+            for IP in "${IPS_ERROR[@]}"; do
+                echo -e " ${RED}✘${NC} $IP"
+            done
+
+            echo
+        fi
+
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo -e " ${GREEN}Desbaneadas:${NC} $DESBANEADAS"
+        echo -e " ${YELLOW}No baneadas:${NC} $NO_BANEADAS"
+        echo -e " ${RED}Errores:${NC}     $ERRORES"
+        echo
+
+        if [ "$DESBANEADAS" -gt 0 ]; then
+            echo -e "${GREEN}✓ Fail2Ban actualizado correctamente.${NC}"
+        else
+            echo -e "${YELLOW}No fue necesario quitar ningún baneo.${NC}"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # REINICIAR FAIL2BAN
+    # ===================================================
+    reiniciar_fail2ban() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}             REINICIAR FAIL2BAN${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        echo -e "${CYAN}Reiniciando Fail2Ban...${NC}"
+
+        if systemctl restart fail2ban; then
+
+            sleep 1
+
+            if systemctl is-active --quiet fail2ban; then
+                echo
+                echo -e "${GREEN}✓ Fail2Ban reiniciado correctamente.${NC}"
+            else
+                echo
+                echo -e "${RED}✘ Fail2Ban no quedó activo.${NC}"
+            fi
+
+        else
+            echo
+            echo -e "${RED}✘ Error al reiniciar Fail2Ban.${NC}"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # DETENER FAIL2BAN
+    # ===================================================
+    detener_fail2ban() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              DETENER FAIL2BAN${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if ! systemctl is-active --quiet fail2ban; then
+            echo -e "${YELLOW}⚠ Fail2Ban ya está detenido.${NC}"
+            pausar
+            return
+        fi
+
+        echo -e "${YELLOW}ADVERTENCIA:${NC}"
+        echo -e "Fail2Ban dejará de bloquear nuevos intentos."
+        echo
+        echo -e "${WHITE}El servicio volverá a iniciarse después de"
+        echo -e "reiniciar el servidor si está habilitado.${NC}"
+        echo
+
+        read -rp "¿Detener Fail2Ban ahora? [s/N]: " CONFIRMAR
+
+        if [[ ! "$CONFIRMAR" =~ ^[sS]$ ]]; then
+            echo
+            echo -e "${YELLOW}Operación cancelada.${NC}"
+            pausar
+            return
+        fi
+
+        echo
+
+        if systemctl stop fail2ban; then
+
+            if ! systemctl is-active --quiet fail2ban; then
+                echo -e "${GREEN}✓ Fail2Ban detenido correctamente.${NC}"
+            else
+                echo -e "${RED}✘ Fail2Ban continúa activo.${NC}"
+            fi
+
+        else
+            echo -e "${RED}✘ Error al detener Fail2Ban.${NC}"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # INICIAR FAIL2BAN
+    # ===================================================
+    iniciar_fail2ban() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              INICIAR FAIL2BAN${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        if systemctl is-active --quiet fail2ban; then
+            echo -e "${GREEN}✓ Fail2Ban ya está activo.${NC}"
+            pausar
+            return
+        fi
+
+        echo -e "${CYAN}Iniciando Fail2Ban...${NC}"
+        echo
+
+        if systemctl start fail2ban; then
+
+            sleep 1
+
+            if systemctl is-active --quiet fail2ban; then
+                echo -e "${GREEN}✓ Fail2Ban iniciado correctamente.${NC}"
+            else
+                echo -e "${RED}✘ Fail2Ban no quedó activo.${NC}"
+            fi
+
+        else
+
+            echo -e "${RED}✘ Error al iniciar Fail2Ban.${NC}"
+            echo
+            systemctl status fail2ban --no-pager -l
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # DESACTIVAR INICIO AUTOMÁTICO
+    # ===================================================
+    desactivar_fail2ban_inicio() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}       DESACTIVAR FAIL2BAN AL INICIO${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        echo -e "${YELLOW}Esto hará dos cosas:${NC}"
+        echo
+        echo -e " ${RED}1)${NC} Detendrá Fail2Ban ahora."
+        echo -e " ${RED}2)${NC} Evitará que arranque automáticamente."
+        echo
+        echo -e "${RED}⚠ El servidor quedará sin protección de Fail2Ban.${NC}"
+        echo
+
+        read -rp "¿Desactivar Fail2Ban completamente? [s/N]: " CONFIRMAR
+
+        if [[ ! "$CONFIRMAR" =~ ^[sS]$ ]]; then
+            echo
+            echo -e "${YELLOW}Operación cancelada.${NC}"
+            pausar
+            return
+        fi
+
+        echo
+        echo -e "${CYAN}Desactivando Fail2Ban...${NC}"
+        echo
+
+        systemctl stop fail2ban 2>/dev/null
+        systemctl disable fail2ban 2>/dev/null
+
+        if ! systemctl is-active --quiet fail2ban && \
+           ! systemctl is-enabled --quiet fail2ban 2>/dev/null; then
+
+            echo -e "${GREEN}✓ Fail2Ban detenido.${NC}"
+            echo -e "${GREEN}✓ Inicio automático deshabilitado.${NC}"
+            echo
+            echo -e "${GREEN}✓ Fail2Ban quedó DESACTIVADO.${NC}"
+
+        else
+
+            echo -e "${RED}✘ No fue posible desactivar Fail2Ban completamente.${NC}"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # ACTIVAR FAIL2BAN COMPLETAMENTE
+    # ===================================================
+    activar_fail2ban_completo() {
+
+        clear
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}              ACTIVAR FAIL2BAN${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        echo -e "${CYAN}Habilitando Fail2Ban...${NC}"
+        echo
+
+        if systemctl enable fail2ban >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ Inicio automático habilitado.${NC}"
+        else
+            echo -e "${RED}✘ Error habilitando inicio automático.${NC}"
+        fi
+
+        if systemctl start fail2ban; then
+            sleep 1
+        fi
+
+        if systemctl is-active --quiet fail2ban; then
+            echo -e "${GREEN}✓ Servicio Fail2Ban activo.${NC}"
+        else
+            echo -e "${RED}✘ Fail2Ban no pudo iniciarse.${NC}"
+            echo
+            systemctl status fail2ban --no-pager -l
+        fi
+
+        echo
+
+        if systemctl is-enabled --quiet fail2ban 2>/dev/null; then
+            echo -e "${GREEN}✓ Fail2Ban quedó ACTIVADO completamente.${NC}"
+        fi
+
+        pausar
+    }
+
+    # ===================================================
+    # MENÚ PRINCIPAL
+    # ===================================================
 
     while true; do
+
         clear
-        echo -e "${CYAN}=========== FAIL2BAN PRO ===========${NC}"
+
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${WHITE}                 FAIL2BAN PRO${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        # Estado actual
+        if systemctl is-active --quiet fail2ban 2>/dev/null; then
+            ESTADO="${GREEN}● ACTIVO${NC}"
+        else
+            ESTADO="${RED}● INACTIVO${NC}"
+        fi
+
+        if systemctl is-enabled --quiet fail2ban 2>/dev/null; then
+            INICIO="${GREEN}● HABILITADO${NC}"
+        else
+            INICIO="${RED}● DESHABILITADO${NC}"
+        fi
+
+        obtener_ips_baneadas
+
+        echo -e " Estado:        $ESTADO"
+        echo -e " Inicio:        $INICIO"
+        echo -e " Jail SSH:      ${YELLOW}${JAIL}${NC}"
+
+        if systemctl is-active --quiet fail2ban 2>/dev/null; then
+            echo -e " IPs baneadas:  ${RED}${#IPS_BANEADAS[@]}${NC}"
+        else
+            echo -e " IPs baneadas:  ${GRAY}Servicio detenido${NC}"
+        fi
+
+        echo
+        echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+        echo
+
         echo -e "${YELLOW}1)${NC} Ver estado general"
-        echo -e "${YELLOW}2)${NC} Ver IPs baneadas (sshd)"
-        echo -e "${YELLOW}3)${NC} Desbanear MI IP automáticamente"
-        echo -e "${YELLOW}4)${NC} Desbanear IP manual"
-        echo -e "${YELLOW}5)${NC} Reiniciar Fail2Ban"
+        echo -e "${YELLOW}2)${NC} Ver IPs baneadas"
+        echo -e "${YELLOW}3)${NC} Desbanear IP por selección"
+        echo -e "${YELLOW}4)${NC} Desbanear TODAS las IPs"
+        echo -e "${YELLOW}5)${NC} Desbanear MI IP pública + local SSH"
+        echo -e "${YELLOW}6)${NC} Desbanear IP manual"
+
+        echo
+        echo -e "${CYAN}──── CONTROL DEL SERVICIO ────${NC}"
+        echo
+
+        echo -e "${YELLOW}7)${NC} Reiniciar Fail2Ban"
+        echo -e "${YELLOW}8)${NC} Detener Fail2Ban"
+        echo -e "${YELLOW}9)${NC} Iniciar Fail2Ban"
+        echo -e "${RED}10)${NC} Desactivar Fail2Ban completamente"
+        echo -e "${GREEN}11)${NC} Activar Fail2Ban completamente"
+
+        echo
         echo -e "${YELLOW}0)${NC} Volver"
-        read -p "Selecciona opción: " OP
+        echo
+
+        read -rp "Selecciona una opción: " OP
 
         case "$OP" in
 
-        1)
-            echo -e "${CYAN}Estado Fail2Ban:${NC}"
-            sudo fail2ban-client status
-            pausar
-        ;;
+            1)
+                clear
 
-        2)
-            echo -e "${CYAN}IPs baneadas en SSH:${NC}"
-            sudo fail2ban-client status sshd
-            pausar
-        ;;
+                echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                echo -e "${WHITE}            ESTADO DE FAIL2BAN${NC}"
+                echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                echo
 
-        3)
-            echo -e "${CYAN}Detectando tu IP pública...${NC}"
-            MI_IP=$(curl -s ifconfig.me)
+                systemctl status fail2ban --no-pager -l
 
-            if [ -z "$MI_IP" ]; then
-                echo -e "${RED}No se pudo detectar la IP${NC}"
+                if systemctl is-active --quiet fail2ban; then
+                    echo
+                    echo -e "${CYAN}──────────────────────────────────────────────${NC}"
+                    echo
+                    fail2ban-client status
+                    echo
+                    fail2ban-client status "$JAIL" 2>/dev/null
+                fi
+
                 pausar
-                continue
-            fi
+            ;;
 
-            echo -e "${YELLOW}Tu IP detectada:${NC} $MI_IP"
-
-            sudo fail2ban-client set sshd unbanip "$MI_IP" \
-                && echo -e "${GREEN}✔ IP desbaneada${NC}" \
-                || echo -e "${RED}✘ No estaba baneada o error${NC}"
-
-            pausar
-        ;;
-
-        4)
-            read -p "Ingresa IP a desbanear: " IP
-
-            if [[ ! "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo -e "${RED}IP inválida${NC}"
+            2)
+                clear
+                mostrar_ips_baneadas
                 pausar
-                continue
-            fi
+            ;;
 
-            sudo fail2ban-client set sshd unbanip "$IP" \
-                && echo -e "${GREEN}✔ IP desbaneada${NC}" \
-                || echo -e "${RED}✘ Error o IP no baneada${NC}"
+            3)
+                seleccionar_ip_desbanear
+            ;;
 
-            pausar
-        ;;
+            4)
+                clear
 
-        5)
-            echo -e "${CYAN}Reiniciando Fail2Ban...${NC}"
-            sudo systemctl restart fail2ban
+                if mostrar_ips_baneadas; then
+                    desbanear_todas
+                else
+                    pausar
+                fi
+            ;;
 
-            if systemctl is-active --quiet fail2ban; then
-                echo -e "${GREEN}✔ Fail2Ban reiniciado${NC}"
-            else
-                echo -e "${RED}✘ Error al reiniciar${NC}"
-            fi
+            5)
+                desbanear_mi_ip
+            ;;
 
-            pausar
-        ;;
+            6)
+                desbanear_manual
+            ;;
 
-        0) break ;;
+            7)
+                reiniciar_fail2ban
+            ;;
 
-        *)
-            echo -e "${RED}Opción inválida${NC}"
-            pausar
-        ;;
+            8)
+                detener_fail2ban
+            ;;
+
+            9)
+                iniciar_fail2ban
+            ;;
+
+            10)
+                desactivar_fail2ban_inicio
+            ;;
+
+            11)
+                activar_fail2ban_completo
+            ;;
+
+            0)
+                break
+            ;;
+
+            *)
+                echo
+                echo -e "${RED}✘ Opción inválida.${NC}"
+                sleep 1
+            ;;
 
         esac
     done
-}
-# ========= LIMPIAR HISTORIAL + CONTROL =========
-limpiar_historial() {
-
-    echo -e "\n${CYAN}⚠ Esto eliminará TODO el historial (memoria + archivo)${NC}"
-    read -p "¿Estás seguro? (s/n): " CONFIRMAR
-
-    if [[ "$CONFIRMAR" =~ ^[sS]$ ]]; then
-
-        echo -e "${YELLOW}Limpiando historial...${NC}"
-
-        # limpiar memoria
-        history -c
-
-        # borrar archivo
-        rm -f ~/.bash_history
-
-        echo -e "${GREEN}✔ Historial eliminado completamente${NC}"
-
-        echo ""
-        echo "¿Deseas seguir guardando historial?"
-        echo "1) Sí, activar historial"
-        echo "2) No, modo privado (no guardar)"
-        echo ""
-
-        read -p "Selecciona opción: " OPC
-
-        case $OPC in
-            1)
-                export HISTFILE=~/.bash_history
-                export HISTSIZE=1000
-                export HISTFILESIZE=2000
-                echo -e "${GREEN}✔ Historial ACTIVADO${NC}"
-                ;;
-            2)
-                unset HISTFILE
-                export HISTSIZE=0
-                export HISTFILESIZE=0
-                echo -e "${GREEN}✔ Historial DESACTIVADO (modo privado)${NC}"
-                ;;
-            *)
-                echo -e "${RED}Opción inválida, se mantiene configuración actual${NC}"
-                ;;
-        esac
-
-    else
-        echo -e "${RED}❌ Operación cancelada${NC}"
-    fi
-
-    read -p "Presiona ENTER para volver al menú..."
 }
 
 # ========= REPARAR ERROR FECHA / APT =========
@@ -9900,7 +11963,7 @@ echo -e " ${YELLOW}8)${NC} Ejecutar Comando a Varios PC / CLUSTER PRO SSH (CON P
 echo -e " ${YELLOW}9)${NC} SWAP (Ver/Crear/Activar/Desactivar)"
 echo -e " ${YELLOW}*"
 echo -e " ${YELLOW}10)${NC} Activar/Desactivar (Adminer/Webmin)"
-echo -e " ${YELLOW}11)${NC} DuckDNS + Cron (IP dinámica automática)"
+echo -e " ${YELLOW}11)${NC} Cloudflare - NoIP - DuckDNS -(Cliente sincronizacion automática)"
 echo -e " ${YELLOW}*"
 echo -e " ${YELLOW}12)${NC} Montar HDD/USB/WebDav/Rclone /Copiar/Borrar/Escanear/Permisos"
 echo -e " ${YELLOW}*"
@@ -9926,7 +11989,7 @@ echo -e " ${CYAN}0)${CYAN}${CYAN} [Salir]"
     8) cluster_menu ;;
 	9) menu_swap ;;
     10) menu_adminer_webmin ;;
-    11) menu_duckdns ;;
+    11) menu_ddns ;;
     12) usb_disco_externo ;;
 	13) menu_servicios ;;
   	14) fix_fecha_apt ;;
