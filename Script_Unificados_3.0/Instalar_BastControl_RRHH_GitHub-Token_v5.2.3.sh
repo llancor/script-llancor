@@ -1826,7 +1826,7 @@ while true; do
   title
   printf "${C}${G} INSTALACIÓN${N}\n"
   printf "  ${Y}1)${C} Instalar dependencias${N}\n"
-  printf "  ${Y}2)${C} Instalar o migrar a BastControl${N}\n\n"
+  printf "  ${Y}2)${C} Instalar o migrar a BastControl GitHub-Token${N}\n\n"
   printf "${C}${G} ADMINISTRACIÓN${N}\n"
   printf "  ${Y}3)${C} Estado y control del servicio${N}\n"
   printf "  ${Y}4)${C} Cambiar puerto de Docker${N}\n"
@@ -1836,7 +1836,7 @@ while true; do
   printf "  ${Y}7)${C} Desinstalar y borrar todo${N}\n"
   printf "  ${Y}8)${C} Reparar base de datos${N}\n"
   printf "  ${Y}9)${Y} Ver credenciales iniciales${N}\n"
-  printf "  ${Y}10)${Y} Actualizar BastControl${N}\n"
+  printf "  ${Y}10)${Y} Actualizar BastControl GitHub-Token${N}\n"
   printf "  ${Y}11)${G} Crear respaldo completo (frontend, backend, DB y volúmenes)${N}\n"
   printf "  ${Y}12)${G} Restaurar respaldo completo${N}\n"
   printf "  ${Y}0)${C} Salir${N}\n\n"
