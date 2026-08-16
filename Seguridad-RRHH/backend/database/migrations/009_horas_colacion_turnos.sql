@@ -1,2 +1,0 @@
-ALTER TABLE turnos
-  ADD COLUMN horas_colacion DECIMAL(4,2) NOT NULL DEFAULT 0 AFTER hora_fin;
