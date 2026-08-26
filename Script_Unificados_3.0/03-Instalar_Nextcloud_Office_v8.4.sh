@@ -6132,122 +6132,720 @@ echo
 # =========================================================
 # FIN REINSTALAR NEXTCLOUD
 # =========================================================
-
 # ========= RESTORE COPIA DE SEGURIDAD FORZADO =========
 
-restaurar_backup_forzado(){
-echo -e "${YELLOW}📂 Buscando backups disponibles...${NC}"
-  listar_backups_nextcloud || return
+restaurar_backup_forzado() {
 
-  read -rp "Selecciona la copia a restaurar (0=cancelar): " n
-  [[ "$n" == "0" ]] && warn "Cancelado." && return
-  [[ "$n" =~ ^[0-9]+$ ]] && (( n>=1 && n<=${#BACKUPS[@]} )) || { err "Número inválido."; return; }
+    echo -e "${YELLOW}📂 Buscando backups disponibles...${NC}"
+    listar_backups_nextcloud || return
 
-  SELECTED_BACKUP="${BACKUPS[$((n-1))]}"
-echo
-echo -e "${CYAN}📦 Backup seleccionado:${NC} ${WHITE}$SELECTED_BACKUP${NC}"
-  confirmar "¿Restaurar desde $SELECTED_BACKUP?" || return
+    read -rp "Selecciona la copia a restaurar (0=cancelar): " n
 
-echo
-echo -e "${YELLOW}🔍 Verificando dependencia pv...${NC}"
+    [[ "$n" == "0" ]] && {
+        warn "Cancelado."
+        return
+    }
 
-  # ===== Verificar pv (sin cortar ejecución) =====
-USE_PV=true
+    [[ "$n" =~ ^[0-9]+$ ]] &&
+    (( n >= 1 && n <= ${#BACKUPS[@]} )) || {
+        err "Número inválido."
+        return
+    }
 
-if ! command -v pv >/dev/null 2>&1; then
-  echo -e "${YELLOW}⚠ pv no está instalado. Intentando instalar...${NC}"
-  
-  if apt update -qq && apt install -y -qq pv; then
-    echo -e "${GREEN}✔ pv instalado correctamente${NC}"
-  else
-    echo -e "${RED}❌ No se pudo instalar pv, continuando sin barra de progreso...${NC}"
-    USE_PV=false
-  fi
-fi
+    SELECTED_BACKUP="${BACKUPS[$((n-1))]}"
 
-echo -e "${YELLOW}⛔ Deteniendo servicios Nextcloud...${NC}"
-  detener_servicios_nextcloud
+    echo
+    echo -e "${CYAN}📦 Backup seleccionado:${NC}"
+    echo -e "${WHITE}$SELECTED_BACKUP${NC}"
 
-  echo
-  echo -e "${CYAN}🧹 Eliminando instalación actual...${NC}"
+    # =========================================================
+    # VALIDAR BACKUP
+    # =========================================================
 
-  # BORRADO TOTAL (fuerza bruta)
-  rm -rf "$NEXTCLOUD_DIR"/*
-  echo -e "${GREEN}✔ Instalación anterior eliminada${NC}"
+    echo
+    echo -e "${YELLOW}🔍 Verificando estructura del backup...${NC}"
 
-  echo
-  echo -e "${CYAN}📥 Restaurando archivos desde backup...${NC}"
-  
-  # ===== RESTORE CON PROGRESO (MISMA LÓGICA CP) =====
-TOTAL_FILES=$(find "$SELECTED_BACKUP" -type f | wc -l)
-  echo -e "${WHITE}📄 Total de archivos a restaurar:${NC} $TOTAL_FILES"
-cd "$SELECTED_BACKUP" || return
+    REQUIRED_ITEMS=(
+        "version.php"
+        "occ"
+        "index.php"
+        "config"
+        "core"
+        "apps"
+    )
 
-find . -type f -print0 | pv -0 -l -s "$TOTAL_FILES" -w 80 \
--F "Progreso: [%b] %p%% (%c/$TOTAL_FILES archivos) ETA %t" \
-| while IFS= read -r -d '' file; do
-  mkdir -p "$NEXTCLOUD_DIR/$(dirname "$file")"
-  cp -a "$file" "$NEXTCLOUD_DIR/$file"
-done
+    for item in "${REQUIRED_ITEMS[@]}"; do
 
-echo
+        if [[ ! -e "$SELECTED_BACKUP/$item" ]]; then
+            echo -e "${RED}❌ Backup inválido: falta $item${NC}"
+            return 1
+        fi
 
-  echo
-  echo -e "${YELLOW}🔐 Aplicando permisos seguros...${NC}"
-  # PERMISOS
+    done
 
-# PROPIETARIO
-chown -R $USER_WEB:$USER_WEB "$NEXTCLOUD_DIR"
-echo -e "${YELLOW}🔐 Aplicado Permisos Propietario...${NC}"
+    echo -e "${GREEN}✔ Backup válido${NC}"
 
-# PERMISOS SEGUROS
-find "$NEXTCLOUD_DIR" -type d -exec chmod 750 {} \;
-find "$NEXTCLOUD_DIR" -type f -exec chmod 640 {} \;
-echo -e "${YELLOW}🔐 Aplicado Permisos Nextcloud chmod 750/640...${NC}"
+    # =========================================================
+    # VERSION ACTUAL
+    # =========================================================
 
-# OCC EJECUTABLE
-chmod +x "$NEXTCLOUD_DIR/occ"
-echo -e "${YELLOW}🔐 Aplicado Permiso Ejecutable OCC...${NC}"
+    CURRENT_VERSION="Desconocida"
 
-# CARPETAS QUE NEXTCLOUD NECESITA ESCRIBIR
+    if [[ -f "$NEXTCLOUD_DIR/version.php" ]]; then
 
-chmod -R 770 "$NEXTCLOUD_DIR/config"
-chmod -R 770 "$NEXTCLOUD_DIR/apps"
-chmod -R 770 "$NEXTCLOUD_DIR/custom_apps"
-chmod -R 770 "$NEXTCLOUD_DIR/updater"
-echo -e "${YELLOW}🔐 Aplicado Permiso Carpetas que necesta Escribir...${NC}"
-# DATA
-chown -R $USER_WEB:$USER_WEB "$DATA_DIR"
-find "$DATA_DIR" -type d -exec chmod 750 {} \;
-find "$DATA_DIR" -type f -exec chmod 640 {} \; 
-echo -e "${YELLOW}🔐 Aplicado Permisos nextcloud-data 750/640...${NC}"
-echo
-echo
-echo -e "${GREEN}✔ Permisos aplicados${NC}"  
-  
-  echo
-  echo -e "${YELLOW}▶ Iniciando servicios Nextcloud...${NC}"
-  iniciar_servicios_nextcloud
-  
-  echo -e "${YELLOW}Intentando upgrade...${NC}"
-  sudo -u $USER_WEB php "$NEXTCLOUD_DIR/occ" upgrade 2>/dev/null
-  
-  echo -e "${YELLOW} Deshabilitando modo mantenimiento ${NC}"
-  sudo -u www-data php /var/www/nextcloud/occ maintenance:mode --off
-  
-  # REPARACION BASICA
-  echo -e "${YELLOW}Ejecutando reparación básica...${NC}"
-  sudo -u $USER_WEB php "$NEXTCLOUD_DIR/occ" maintenance:repair 2>/dev/null
-  
-printf "\n"
+        CURRENT_VERSION=$(
+            grep -E "OC_VersionString" \
+                "$NEXTCLOUD_DIR/version.php" 2>/dev/null |
+            sed -E "s/.*'([^']+)'.*/\1/" |
+            head -n1
+        )
 
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}   ✔ Restauración completada correctamente  ${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    fi
 
-echo
-echo -e "${CYAN}📌 Presiona Enter para volver al menú...${NC}"
-read
+    [[ -z "$CURRENT_VERSION" ]] &&
+        CURRENT_VERSION="Desconocida"
+
+    # =========================================================
+    # VERSION BACKUP
+    # =========================================================
+
+    BACKUP_VERSION=$(
+        grep -E "OC_VersionString" \
+            "$SELECTED_BACKUP/version.php" 2>/dev/null |
+        sed -E "s/.*'([^']+)'.*/\1/" |
+        head -n1
+    )
+
+    [[ -z "$BACKUP_VERSION" ]] &&
+        BACKUP_VERSION="Desconocida"
+
+    # =========================================================
+    # INFORMACION
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}        RESTAURACIÓN FORZADA DE NEXTCLOUD${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo
+    echo -e "Versión actual : ${WHITE}$CURRENT_VERSION${NC}"
+    echo -e "Versión backup : ${WHITE}$BACKUP_VERSION${NC}"
+    echo
+    echo -e "Backup:"
+    echo -e "${WHITE}$SELECTED_BACKUP${NC}"
+    echo
+
+    # =========================================================
+    # DETECTAR DOWNGRADE
+    # =========================================================
+
+    if [[ "$CURRENT_VERSION" != "Desconocida" &&
+          "$BACKUP_VERSION" != "Desconocida" ]]; then
+
+        if dpkg --compare-versions \
+            "$BACKUP_VERSION" lt "$CURRENT_VERSION"; then
+
+            echo -e "${YELLOW}⚠ DOWNGRADE DETECTADO${NC}"
+            echo
+            echo -e "Se restaurará Nextcloud:"
+            echo
+            echo -e "${WHITE}$CURRENT_VERSION${NC} → ${WHITE}$BACKUP_VERSION${NC}"
+            echo
+
+        fi
+
+    fi
+
+    echo -e "${YELLOW}⚠ ATENCIÓN${NC}"
+    echo
+    echo "Se eliminará el código actual de Nextcloud."
+    echo "Será reemplazado por el backup seleccionado."
+    echo
+    echo "Esta operación NO restaura:"
+    echo "  - Base de datos"
+    echo "  - Archivos de usuarios"
+    echo "  - nextcloud-data"
+    echo
+
+    confirmar "¿Continuar con la restauración?" || return
+
+    # =========================================================
+    # VERIFICAR RSYNC
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🔍 Verificando rsync...${NC}"
+
+    if ! command -v rsync >/dev/null 2>&1; then
+
+        echo -e "${YELLOW}⚠ rsync no está instalado.${NC}"
+        echo -e "${YELLOW}Intentando instalar...${NC}"
+
+        if apt-get update -qq &&
+           apt-get install -y -qq rsync; then
+
+            echo -e "${GREEN}✔ rsync instalado${NC}"
+
+        else
+
+            echo -e "${RED}❌ No fue posible instalar rsync${NC}"
+            return 1
+
+        fi
+
+    else
+
+        echo -e "${GREEN}✔ rsync disponible${NC}"
+
+    fi
+
+    # =========================================================
+    # DETENER SERVICIOS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}⛔ Deteniendo servicios Nextcloud...${NC}"
+
+    detener_servicios_nextcloud || {
+
+        echo -e "${RED}❌ No fue posible detener los servicios${NC}"
+        return 1
+
+    }
+
+    # =========================================================
+    # ELIMINAR INSTALACION ACTUAL
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}🧹 Eliminando código actual de Nextcloud...${NC}"
+
+    if [[ -z "$NEXTCLOUD_DIR" ||
+          "$NEXTCLOUD_DIR" == "/" ||
+          ! -d "$NEXTCLOUD_DIR" ]]; then
+
+        echo -e "${RED}❌ NEXTCLOUD_DIR no es válido:${NC}"
+        echo -e "${WHITE}$NEXTCLOUD_DIR${NC}"
+
+        iniciar_servicios_nextcloud
+        return 1
+
+    fi
+
+    find "$NEXTCLOUD_DIR" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -exec rm -rf -- {} +
+
+    if [[ $? -ne 0 ]]; then
+
+        echo -e "${RED}❌ No fue posible limpiar $NEXTCLOUD_DIR${NC}"
+
+        iniciar_servicios_nextcloud
+        return 1
+
+    fi
+
+    echo -e "${GREEN}✔ Código anterior eliminado${NC}"
+
+    # =========================================================
+    # RESTAURAR BACKUP
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}📥 Restaurando archivos desde backup...${NC}"
+    echo
+
+    if ! rsync \
+        -aH \
+        --info=progress2 \
+        "$SELECTED_BACKUP/" \
+        "$NEXTCLOUD_DIR/"; then
+
+        echo
+        echo -e "${RED}❌ ERROR durante la restauración.${NC}"
+        echo
+        echo -e "${RED}El directorio de Nextcloud puede haber quedado incompleto.${NC}"
+        echo -e "${YELLOW}No se iniciarán reparaciones ni upgrades.${NC}"
+
+        return 1
+
+    fi
+
+    echo
+    echo -e "${GREEN}✔ Archivos restaurados correctamente${NC}"
+
+    # =========================================================
+    # PERMISOS NEXTCLOUD
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🔐 Aplicando permisos...${NC}"
+
+    chown -R "$USER_WEB:$USER_WEB" "$NEXTCLOUD_DIR"
+
+    find "$NEXTCLOUD_DIR" \
+        -type d \
+        -exec chmod 750 {} \;
+
+    find "$NEXTCLOUD_DIR" \
+        -type f \
+        -exec chmod 640 {} \;
+
+    if [[ -f "$NEXTCLOUD_DIR/occ" ]]; then
+        chmod 750 "$NEXTCLOUD_DIR/occ"
+    fi
+
+    # Carpetas que pueden requerir escritura
+    for dir in config apps custom_apps updater; do
+
+        if [[ -d "$NEXTCLOUD_DIR/$dir" ]]; then
+            chmod -R 770 "$NEXTCLOUD_DIR/$dir"
+        fi
+
+    done
+
+    echo -e "${GREEN}✔ Permisos aplicados${NC}"
+
+    # =========================================================
+    # NO TOCAR NEXTCLOUD-DATA
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}ℹ nextcloud-data no será modificado${NC}"
+
+    # =========================================================
+    # INICIAR SERVICIOS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}▶ Iniciando servicios Nextcloud...${NC}"
+
+    iniciar_servicios_nextcloud || {
+
+        echo -e "${RED}❌ No fue posible iniciar los servicios${NC}"
+        return 1
+
+    }
+
+    sleep 2
+
+    # =========================================================
+    # OCC STATUS
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}🔍 Verificando estado inicial...${NC}"
+    echo
+
+    OCC_STATUS=$(
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" status 2>&1
+    )
+
+    OCC_STATUS_EXIT=$?
+
+    echo "$OCC_STATUS"
+
+    if (( OCC_STATUS_EXIT != 0 )); then
+
+        echo
+        echo -e "${RED}❌ OCC reportó un error.${NC}"
+        echo -e "${YELLOW}No se ejecutará ninguna reparación automática.${NC}"
+
+        return 1
+
+    fi
+
+    NEEDS_UPGRADE=$(
+        echo "$OCC_STATUS" |
+        awk '/needsDbUpgrade:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    # =========================================================
+    # OCC UPGRADE
+    # =========================================================
+
+    if [[ "$NEEDS_UPGRADE" == "true" ]]; then
+
+        echo
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}     ⚙ COMPLETANDO ACTUALIZACIÓN INTERNA${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo
+
+        echo -e "Código restaurado : ${WHITE}$BACKUP_VERSION${NC}"
+        echo
+        echo -e "${CYAN}Ejecutando occ upgrade...${NC}"
+        echo
+
+        if sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" upgrade; then
+
+            echo
+            echo -e "${GREEN}✔ occ upgrade completado correctamente${NC}"
+
+        else
+
+            echo
+            echo -e "${RED}❌ ERROR durante occ upgrade${NC}"
+            echo -e "${YELLOW}No se ejecutarán reparaciones adicionales.${NC}"
+
+            return 1
+
+        fi
+
+    else
+
+        echo
+        echo -e "${GREEN}✔ No se requiere occ upgrade${NC}"
+
+    fi
+
+    # =========================================================
+    # MAINTENANCE OFF
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🔓 Deshabilitando modo mantenimiento...${NC}"
+
+    sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" \
+        maintenance:mode --off \
+        >/dev/null 2>&1 || true
+
+    echo -e "${GREEN}✔ Modo mantenimiento deshabilitado${NC}"
+
+    # =========================================================
+    # REPARACION GENERAL
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🛠 Ejecutando reparación general...${NC}"
+    echo
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" maintenance:repair; then
+
+        echo
+        echo -e "${GREEN}✔ maintenance:repair completado${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ maintenance:repair terminó con advertencias${NC}"
+
+    fi
+
+    # =========================================================
+    # ACTUALIZAR APLICACIONES
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}📦 Buscando actualizaciones de aplicaciones...${NC}"
+    echo
+
+    APP_UPDATE_OUTPUT=$(
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" \
+            app:update --all 2>&1
+    )
+
+    APP_UPDATE_EXIT=$?
+
+    echo "$APP_UPDATE_OUTPUT"
+
+    if (( APP_UPDATE_EXIT == 0 )); then
+
+        echo
+        echo -e "${GREEN}✔ Aplicaciones actualizadas/verificadas${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ Algunas aplicaciones no pudieron actualizarse${NC}"
+        echo -e "${YELLOW}Se continuará con las reparaciones restantes${NC}"
+
+    fi
+
+    # =========================================================
+    # SEGUNDA REPARACION DESPUES DE APPS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🛠 Reparación posterior a actualización de apps...${NC}"
+    echo
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" maintenance:repair; then
+
+        echo
+        echo -e "${GREEN}✔ Reparación posterior completada${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ Reparación posterior terminó con advertencias${NC}"
+
+    fi
+
+    # =========================================================
+    # DB MISSING INDICES
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🗄 Verificando índices faltantes...${NC}"
+    echo
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" \
+        db:add-missing-indices; then
+
+        echo
+        echo -e "${GREEN}✔ Índices verificados${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ db:add-missing-indices terminó con advertencias${NC}"
+
+    fi
+
+    # =========================================================
+    # DB MISSING COLUMNS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🗄 Verificando columnas faltantes...${NC}"
+    echo
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" \
+        db:add-missing-columns; then
+
+        echo
+        echo -e "${GREEN}✔ Columnas verificadas${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ db:add-missing-columns terminó con advertencias${NC}"
+
+    fi
+
+    # =========================================================
+    # DB MISSING PRIMARY KEYS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🗄 Verificando claves primarias...${NC}"
+    echo
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" \
+        db:add-missing-primary-keys; then
+
+        echo
+        echo -e "${GREEN}✔ Claves primarias verificadas${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ db:add-missing-primary-keys terminó con advertencias${NC}"
+
+    fi
+
+    # =========================================================
+    # DOCUMENTSERVER FONTS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}🔤 Verificando fuentes del servidor de documentos...${NC}"
+
+    if sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" list 2>/dev/null |
+        grep -qE 'documentserver:fonts'; then
+
+        echo -e "${CYAN}Comando documentserver:fonts detectado${NC}"
+        echo -e "${CYAN}Reconstruyendo fuentes...${NC}"
+        echo
+
+        if sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" \
+            documentserver:fonts --rebuild; then
+
+            echo
+            echo -e "${GREEN}✔ Fuentes reconstruidas correctamente${NC}"
+
+        else
+
+            echo
+            echo -e "${YELLOW}⚠ No fue posible reconstruir completamente las fuentes${NC}"
+
+        fi
+
+    else
+
+        echo -e "${CYAN}ℹ documentserver:fonts no está disponible${NC}"
+
+    fi
+
+    # =========================================================
+    # ONLYOFFICE
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}📄 Verificando ONLYOFFICE...${NC}"
+
+    ONLYOFFICE_STATUS="NO INSTALADO"
+    ONLYOFFICE_VERSION=""
+
+    ONLYOFFICE_LINE=$(
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" \
+            app:list --enabled 2>/dev/null |
+        grep -E '^[[:space:]]*-[[:space:]]+onlyoffice:' |
+        head -n1
+    )
+
+    if [[ -n "$ONLYOFFICE_LINE" ]]; then
+
+        ONLYOFFICE_VERSION=$(
+            echo "$ONLYOFFICE_LINE" |
+            sed -E 's/.*onlyoffice:[[:space:]]*//'
+        )
+
+        ONLYOFFICE_STATUS="ACTIVO"
+
+        echo -e "${GREEN}✔ ONLYOFFICE activo: $ONLYOFFICE_VERSION${NC}"
+
+    elif [[ -d "$NEXTCLOUD_DIR/apps/onlyoffice" ||
+            -d "$NEXTCLOUD_DIR/custom_apps/onlyoffice" ]]; then
+
+        ONLYOFFICE_STATUS="INSTALADO / DESHABILITADO"
+
+        echo -e "${YELLOW}⚠ ONLYOFFICE está instalado pero deshabilitado${NC}"
+
+    else
+
+        echo -e "${CYAN}ℹ ONLYOFFICE no está instalado${NC}"
+
+    fi
+
+    # =========================================================
+    # VERIFICAR APPS DESHABILITADAS
+    # =========================================================
+
+    echo
+    echo -e "${YELLOW}📦 Revisando aplicaciones deshabilitadas...${NC}"
+    echo
+
+    sudo -u "$USER_WEB" \
+        php "$NEXTCLOUD_DIR/occ" \
+        app:list --disabled 2>/dev/null || true
+
+    # =========================================================
+    # VERIFICACION FINAL
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}🔍 Verificación final de Nextcloud...${NC}"
+    echo
+
+    FINAL_STATUS=$(
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" status 2>&1
+    )
+
+    echo "$FINAL_STATUS"
+
+    FINAL_VERSION=$(
+        echo "$FINAL_STATUS" |
+        awk '/versionstring:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    FINAL_UPGRADE=$(
+        echo "$FINAL_STATUS" |
+        awk '/needsDbUpgrade:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    FINAL_MAINTENANCE=$(
+        echo "$FINAL_STATUS" |
+        awk '/maintenance:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    FINAL_INSTALLED=$(
+        echo "$FINAL_STATUS" |
+        awk '/installed:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    # =========================================================
+    # RESULTADO
+    # =========================================================
+
+    echo
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}       ✔ RESTAURACIÓN FINALIZADA${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo
+
+    echo -e "Versión anterior   : ${WHITE}$CURRENT_VERSION${NC}"
+    echo -e "Backup restaurado  : ${WHITE}$BACKUP_VERSION${NC}"
+    echo -e "Versión final      : ${WHITE}${FINAL_VERSION:-Desconocida}${NC}"
+    echo
+
+    if [[ "$FINAL_INSTALLED" == "true" ]]; then
+        echo -e "Nextcloud          : ${GREEN}INSTALADO${NC}"
+    else
+        echo -e "Nextcloud          : ${RED}${FINAL_INSTALLED:-DESCONOCIDO}${NC}"
+    fi
+
+    if [[ "$FINAL_UPGRADE" == "false" ]]; then
+        echo -e "DB Upgrade         : ${GREEN}NO${NC}"
+    else
+        echo -e "DB Upgrade         : ${RED}${FINAL_UPGRADE:-DESCONOCIDO}${NC}"
+    fi
+
+    if [[ "$FINAL_MAINTENANCE" == "false" ]]; then
+        echo -e "Maintenance        : ${GREEN}OFF${NC}"
+    else
+        echo -e "Maintenance        : ${RED}${FINAL_MAINTENANCE:-DESCONOCIDO}${NC}"
+    fi
+
+    if [[ "$ONLYOFFICE_STATUS" == "ACTIVO" ]]; then
+        echo -e "ONLYOFFICE         : ${GREEN}ACTIVO ${ONLYOFFICE_VERSION}${NC}"
+    else
+        echo -e "ONLYOFFICE         : ${YELLOW}$ONLYOFFICE_STATUS${NC}"
+    fi
+
+    echo
+    echo -e "${CYAN}Base de datos      : administrada externamente${NC}"
+    echo -e "${CYAN}nextcloud-data     : NO MODIFICADO${NC}"
+
+    echo
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    if [[ "$FINAL_INSTALLED" == "true" &&
+          "$FINAL_UPGRADE" == "false" &&
+          "$FINAL_MAINTENANCE" == "false" ]]; then
+
+        echo
+        echo -e "${GREEN}✔ Nextcloud quedó operativo y sincronizado.${NC}"
+
+    else
+
+        echo
+        echo -e "${YELLOW}⚠ La restauración terminó, pero revisa el estado mostrado.${NC}"
+
+    fi
+
+    echo
+    read -rp "Presiona ENTER para volver al menú..."
 
 }
 
