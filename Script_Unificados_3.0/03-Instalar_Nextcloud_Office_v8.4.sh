@@ -4384,7 +4384,213 @@ menu_limpieza_nextcloud(){
         esac
     done
 }
+# ============================================================
+# CONFIGURADOR DE MEMORIA PHP CLI PARA NEXTCLOUD
+# ============================================================
 
+# Colores básicos
+ROJO='\033[0;31m'
+VERDE='\033[0;32m'
+AMARILLO='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+configurar_memoria_php_cli() {
+
+    clear
+
+    echo -e "${CYAN}==============================================${NC}"
+    echo -e "${CYAN}   MEMORIA PHP CLI - NEXTCLOUD${NC}"
+    echo -e "${CYAN}==============================================${NC}"
+    echo
+
+    # --------------------------------------------------------
+    # Comprobar PHP
+    # --------------------------------------------------------
+    if ! command -v php >/dev/null 2>&1; then
+        echo -e "${ROJO}[ERROR] PHP no está instalado o no está disponible.${NC}"
+        echo
+        read -rp "Presione ENTER para continuar..."
+        return 1
+    fi
+
+    # --------------------------------------------------------
+    # Detectar versión PHP
+    # --------------------------------------------------------
+    PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')
+    PHP_INI="/etc/php/${PHP_VERSION}/cli/php.ini"
+
+    if [ ! -f "$PHP_INI" ]; then
+        echo -e "${ROJO}[ERROR] No se encontró el archivo PHP CLI:${NC}"
+        echo
+        echo "  $PHP_INI"
+        echo
+        read -rp "Presione ENTER para continuar..."
+        return 1
+    fi
+
+    # --------------------------------------------------------
+    # Obtener memoria actual
+    # --------------------------------------------------------
+    MEMORIA_ACTUAL=$(php -r 'echo ini_get("memory_limit");')
+
+    echo "PHP detectado : ${PHP_VERSION}"
+    echo "Archivo       : ${PHP_INI}"
+    echo -e "Memoria actual: ${AMARILLO}${MEMORIA_ACTUAL}${NC}"
+    echo
+
+    echo -e "${CYAN}=== CONFIGURACIÓN DE MEMORIA ===${NC}"
+    echo
+    echo "1) 512 MB"
+    echo "2) 1024 MB (1 GB) - Recomendado"
+    echo "3) 2048 MB (2 GB) - Actualizaciones pesadas"
+    echo "0) Cancelar"
+    echo
+
+    read -rp "Seleccione una opción [2]: " OPCION
+
+    # Opción predeterminada
+    OPCION=${OPCION:-2}
+
+    case "$OPCION" in
+
+        1)
+            NUEVA_MEMORIA="512M"
+            ;;
+
+        2)
+            NUEVA_MEMORIA="1024M"
+            ;;
+
+        3)
+            NUEVA_MEMORIA="2048M"
+            ;;
+
+        0)
+            echo
+            echo -e "${AMARILLO}Operación cancelada.${NC}"
+            return 0
+            ;;
+
+        *)
+            echo
+            echo -e "${ROJO}[ERROR] Opción inválida.${NC}"
+            echo
+            read -rp "Presione ENTER para continuar..."
+            return 1
+            ;;
+    esac
+
+    echo
+    echo -e "${CYAN}----------------------------------------------${NC}"
+    echo -e "${CYAN}Configuración seleccionada${NC}"
+    echo -e "${CYAN}----------------------------------------------${NC}"
+    echo
+    echo -e "Actual : ${AMARILLO}${MEMORIA_ACTUAL}${NC}"
+    echo -e "Nueva  : ${VERDE}${NUEVA_MEMORIA}${NC}"
+    echo
+
+    read -rp "¿Aplicar configuración? (s/N): " CONFIRMAR
+
+    case "$CONFIRMAR" in
+        s|S|si|SI|sí|Sí)
+            ;;
+        *)
+            echo
+            echo -e "${AMARILLO}Operación cancelada.${NC}"
+            return 0
+            ;;
+    esac
+
+    # --------------------------------------------------------
+    # Crear respaldo
+    # --------------------------------------------------------
+    BACKUP="${PHP_INI}.bak-$(date +%Y%m%d-%H%M%S)"
+
+    echo
+    echo "Creando respaldo..."
+
+    if cp -a "$PHP_INI" "$BACKUP"; then
+        echo -e "${VERDE}[OK] Respaldo creado:${NC}"
+        echo "     $BACKUP"
+    else
+        echo -e "${ROJO}[ERROR] No fue posible crear el respaldo.${NC}"
+        echo
+        read -rp "Presione ENTER para continuar..."
+        return 1
+    fi
+
+    # --------------------------------------------------------
+    # Modificar memory_limit
+    # --------------------------------------------------------
+    echo
+    echo "Configurando memory_limit = ${NUEVA_MEMORIA}..."
+
+    if grep -Eq '^[[:space:]]*memory_limit[[:space:]]*=' "$PHP_INI"; then
+
+        sed -i -E \
+            "s/^[[:space:]]*memory_limit[[:space:]]*=.*/memory_limit = ${NUEVA_MEMORIA}/" \
+            "$PHP_INI"
+
+    else
+
+        echo "" >> "$PHP_INI"
+        echo "; Nextcloud - Memory Limit" >> "$PHP_INI"
+        echo "memory_limit = ${NUEVA_MEMORIA}" >> "$PHP_INI"
+
+    fi
+
+    # --------------------------------------------------------
+    # Verificar valor final
+    # --------------------------------------------------------
+    MEMORIA_FINAL=$(php -r 'echo ini_get("memory_limit");')
+
+    echo
+    echo -e "${CYAN}==============================================${NC}"
+
+    if [ "$MEMORIA_FINAL" = "$NUEVA_MEMORIA" ]; then
+
+        echo -e "${VERDE}       CONFIGURACIÓN COMPLETADA${NC}"
+        echo -e "${CYAN}==============================================${NC}"
+        echo
+
+        echo -e "${VERDE}[OK] Memoria PHP CLI actualizada correctamente.${NC}"
+        echo
+        echo "PHP              : ${PHP_VERSION}"
+        echo "Archivo          : ${PHP_INI}"
+        echo -e "Memoria anterior : ${AMARILLO}${MEMORIA_ACTUAL}${NC}"
+        echo -e "Memoria actual   : ${VERDE}${MEMORIA_FINAL}${NC}"
+
+    else
+
+        echo -e "${AMARILLO}              ADVERTENCIA${NC}"
+        echo -e "${CYAN}==============================================${NC}"
+        echo
+
+        echo -e "${AMARILLO}El archivo fue modificado, pero PHP reporta:${NC}"
+        echo
+        echo "memory_limit=${MEMORIA_FINAL}"
+        echo
+        echo "Valor esperado:"
+        echo
+        echo "memory_limit=${NUEVA_MEMORIA}"
+        echo
+        echo "Puede existir otra configuración sobrescribiendo"
+        echo "el valor en:"
+        echo
+        echo "/etc/php/${PHP_VERSION}/cli/conf.d/"
+
+    fi
+
+    echo
+    echo -e "${CYAN}----------------------------------------------${NC}"
+    echo "Para verificar manualmente:"
+    echo
+    echo "php -r 'echo \"memory_limit=\".ini_get(\"memory_limit\").PHP_EOL;'"
+    echo
+
+    read -rp "Presione ENTER para continuar..."
+}
 
 menu_nextcloud_occ(){
 
@@ -4409,6 +4615,7 @@ while true; do
     echo -e " ${YELLOW}13)${NC} Gestión usuarios Nextcloud"
     echo -e " ${YELLOW}14)${NC} ${YELLOW}Restaurar ${CYAN}Copias de Seguridad Old/New FORZADO/SEGURO"
     echo -e " ${YELLOW}15)${NC} ${RED}Limpiar almacenamiento Nextcloud ${CYAN}(Papelera/Versiones/Uploads)"
+	echo -e " ${YELLOW}16)${NC} ${GREEN}Configurar MEMORIA PHP CLI - NEXTCLOUD${CYAN} / Actualizacion 1024mb / 2048mb"
     echo -e " ${CYAN}0)${NC} Volver"
 
     echo
@@ -4661,6 +4868,27 @@ echo -e "${CYAN}Buscando nueva versión de Nextcloud...${NC}"
 14)
 
     restaurar_backup_forzado
+
+;;
+
+
+# =========================================================
+# MENU LIMPIEZA
+# =========================================================
+
+15) 
+
+	menu_limpieza_nextcloud
+
+;;
+
+# =========================================================
+# MENU CLI MEMORIA
+# =========================================================
+
+16) 
+
+	configurar_memoria_php_cli 
 
 ;;
 
@@ -6169,8 +6397,6 @@ menu_usuarios_nextcloud(){
       5) nc_cambiar_password ;;
       6) nc_hacer_admin ;;
       7) nc_info_usuario ;;
-      15) menu_limpieza_nextcloud ;;
-
       0) return ;;
 
       *) warn "Opción inválida"; pausa ;;
