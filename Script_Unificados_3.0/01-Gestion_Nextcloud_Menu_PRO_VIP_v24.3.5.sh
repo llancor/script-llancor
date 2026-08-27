@@ -12073,9 +12073,8 @@ read -p "ENTER para continuar..."
   done
 }
 # ========= CIERRE =========
-
 # =======================================================
-#   MODULO WEBDAV / RCLONE / CRON PRO (COMPLETO FINAL)
+#   NEXTCLOUD REMOTO / WEBDAV - SIMPLE E INTERACTIVO
 # =======================================================
 
 # ===================== COLORES ==========================
@@ -12085,1432 +12084,922 @@ GREEN="\033[1;32m"
 RED="\033[1;31m"
 NC="\033[0m"
 
-# ===================== CORE PRO =========================
-LOG_FILE="/var/log/webdav_pro.log"
+NC_REMOTE_LOG="/var/log/nextcloud_remote_webdav.log"
+NC_REMOTE_DB="/etc/nextcloud-remote-webdav.conf"
+NC_REMOTE_BASE="/mnt/nextcloud-remotos"
 
-log_action() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') | $1" >> "$LOG_FILE"
+nc_remote_pause(){ read -rp "Presiona ENTER para continuar..."; }
+nc_remote_log(){ echo "$(date '+%F %T') | $*" >> "$NC_REMOTE_LOG"; }
+
+nc_instalar_davfs(){
+    if command -v mount.davfs >/dev/null 2>&1; then return 0; fi
+    echo -e "${YELLOW}davfs2 no está instalado. Instalando...${NC}"
+    echo "davfs2 davfs2/mount_webdav boolean true" | debconf-set-selections
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y davfs2 || return 1
 }
 
-# =======================================================
-# INSTALAR SI FALTA PARA WEBDAV/RCLONE
-# =======================================================
-instalar_si_falta() {
-    PKG=$1
+nc_urlencode_path(){
+    local s="$1" out="" c i
+    for ((i=0; i<${#s}; i++)); do
+        c="${s:i:1}"
+        case "$c" in
+            [a-zA-Z0-9._~/-]) out+="$c" ;;
+            ' ') out+="%20" ;;
+            *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
 
-    if dpkg -s "$PKG" >/dev/null 2>&1; then
-        echo -e "${GREEN}✔ $PKG ya está instalado${NC}"
-        return 0
+nc_webdav_url(){
+    local server="${1%/}" user="$2" folder="$3"
+    local enc_folder
+    enc_folder="$(nc_urlencode_path "$folder")"
+    if [[ -n "$enc_folder" ]]; then
+        printf '%s/remote.php/dav/files/%s/%s' "$server" "$user" "${enc_folder#/}"
+    else
+        printf '%s/remote.php/dav/files/%s/' "$server" "$user"
     fi
+}
 
-    echo -e "${YELLOW}⚠ $PKG no está instalado → instalando automático...${NC}"
+nc_probar_credenciales(){
+    local url="$1" user="$2" pass="$3" code
+    code=$(curl --http1.1 -k -sS -u "$user:$pass" -X PROPFIND -H 'Depth: 0' -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
+    NC_WEBDAV_HTTP_CODE="$code"
+    [[ "$code" == "207" || "$code" == "200" ]]
+}
 
-    # Evitar bloqueos de APT
-    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-        echo -e "${CYAN}⏳ Esperando que APT se libere...${NC}"
-        sleep 2
+nc_detectar_root_webdav(){
+    local server="${1%/}" user="$2" pass="$3"
+    local candidate login_id xml href
+    local -a ids=("$user")
+
+    # Nextcloud suele guardar el ID WebDAV en minúsculas aunque el login
+    # introducido por el usuario tenga mayúsculas (ej: ENLACES -> enlaces).
+    [[ "${user,,}" != "$user" ]] && ids+=("${user,,}")
+
+    for login_id in "${ids[@]}"; do
+        candidate="$(nc_webdav_url "$server" "$login_id" "")"
+        if nc_probar_credenciales "$candidate" "$user" "$pass"; then
+            # Consultar el href que devuelve Nextcloud para conservar el ID
+            # WebDAV canónico que realmente usa el servidor.
+            xml=$(curl --http1.1 -k -sS -u "$user:$pass" \
+                -X PROPFIND -H 'Depth: 0' "$candidate" 2>/dev/null || true)
+            href=$(printf '%s' "$xml" \
+                | sed -n 's#.*<[^>]*href>\([^<]*\)</[^>]*href>.*#\1#p' \
+                | head -n1)
+
+            if [[ "$href" == /remote.php/dav/files/* ]]; then
+                NC_ROOT_URL="${server}${href}"
+            else
+                NC_ROOT_URL="$candidate"
+            fi
+            [[ "$NC_ROOT_URL" != */ ]] && NC_ROOT_URL+="/"
+            return 0
+        fi
     done
 
-    # Configuración automática para davfs2 (sin preguntas)
-    if [[ "$PKG" == "davfs2" ]]; then
-        echo "davfs2 davfs2/mount_webdav boolean true" | debconf-set-selections
-    fi
-
-    # Update una sola vez por ejecución (optimizado)
-    if [ -z "$APT_UPDATED" ]; then
-        if ! apt update; then
-            echo -e "${RED}Error APT → corrigiendo hora...${NC}"
-
-            apt install -y ntpdate >/dev/null 2>&1
-            timedatectl set-ntp false >/dev/null 2>&1
-            ntpdate pool.ntp.org >/dev/null 2>&1
-            timedatectl set-ntp true >/dev/null 2>&1
-
-            apt update || return 1
-        fi
-        APT_UPDATED=1
-    fi
-
-    # Instalación silenciosa
-    DEBIAN_FRONTEND=noninteractive apt install -y "$PKG" \
-        -o Dpkg::Options::="--force-confdef" \
-        -o Dpkg::Options::="--force-confold" \
-        -o Dpkg::Progress-Fancy="1" || return 1
-
-    echo -e "${GREEN}✔ $PKG instalado correctamente${NC}"
-}
-# =======================================================
-# VALIDA WEBDAV
-# =======================================================
-validar_webdav() {
-    URL=$1
-    USER=$2
-    PASS=$3
-
-    curl -u "$USER:$PASS" -s -o /dev/null -w "%{http_code}" "$URL" | grep -q "200\|207"
-}
-# =======================================================
-# VALIDA RUTA
-# =======================================================
-validar_ruta() {
-    [ -z "$1" ] && return 1
-    return 0
+    return 1
 }
 
-# =======================================================
-# CONFIGURAR REMOTO RCLONE
-# =======================================================
+nc_listar_carpetas_webdav(){
+    local url="$1" user="$2" pass="$3" xml
 
-configurar_remoto_inteligente() {
+    xml=$(curl --http1.1 -k -sS -u "$user:$pass" \
+        -X PROPFIND -H 'Depth: 1' \
+        -H 'Content-Type: application/xml; charset=utf-8' \
+        --data-binary '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>' \
+        "$url" 2>/dev/null) || return 1
 
-    instalar_si_falta rclone || return
+    # Parsear XML para mostrar SOLO carpetas de primer nivel.
+    if command -v python3 >/dev/null 2>&1; then
+        printf '%s' "$xml" | python3 -c '
+import sys, xml.etree.ElementTree as ET
+from urllib.parse import unquote, urlparse
 
-    echo -e "${CYAN}Configurando remoto Rclone${NC}"
-    read -p "Nombre del remoto Eje: webdav-servidor: " REMOTO
+xml = sys.stdin.read()
+try:
+    root = ET.fromstring(xml)
+except Exception:
+    sys.exit(1)
 
-    if rclone listremotes | grep -q "^$REMOTO:$"; then
-        echo "El remoto '$REMOTO' ya existe."
-        echo -e "${YELLOW}1)${NC} Mantenerlo"
-        echo -e "${YELLOW}2)${NC} Reconfigurar (borrar y crear de nuevo)"
-        echo -e "${YELLOW}3)${NC} Eliminar remoto"
-        read -p "Selecciona opción: " EXIST_OP
+DAV = "{DAV:}"
+items = []
+for response in root.findall(DAV + "response"):
+    href_el = response.find(DAV + "href")
+    if href_el is None or not href_el.text:
+        continue
+    is_collection = response.find(".//" + DAV + "resourcetype/" + DAV + "collection") is not None
+    if not is_collection:
+        continue
+    path = unquote(urlparse(href_el.text).path).rstrip("/")
+    name = path.rsplit("/", 1)[-1]
+    if name and name not in items:
+        items.append(name)
 
-        case $EXIST_OP in
-            1)
-                echo "Se mantiene el remoto existente."
-                read -p "ENTER..."
-                return
-            ;;
-            2)
-                echo "Reconfigurando remoto..."
-                rclone config delete "$REMOTO"
-            ;;
-            3)
-                echo "Eliminando remoto..."
-                rclone config delete "$REMOTO"
-                echo -e "${GREEN}✔ Remoto eliminado${NC}"
-                read -p "ENTER..."
-                return
-            ;;
-            *)
-                echo "Opción inválida, se mantiene el remoto."
-                read -p "ENTER..."
-                return
-            ;;
-        esac
+# La primera colección es la raíz consultada; no mostrarla.
+for name in items[1:]:
+    print(name)
+'
+    else
+        # Fallback básico si python3 no está disponible.
+        printf '%s' "$xml" \
+          | tr '>' '>\n' \
+          | sed -n 's#.*<[^>]*href>\([^<]*\)</[^>]*href>.*#\1#p' \
+          | sed '1d' \
+          | sed 's#/$##; s#.*/##; s/%20/ /g' \
+          | grep -v '^$' | sort -u
     fi
-    echo -ne "${CYAN}URL WebDAV Eje: ${YELLOW}https://mi.server/remote.php/dav/files/user${NC}: "
-    read URL    
-    read -p "Usuario: " USER
-    read -s -p "Contraseña: " PASS
+}
+
+nc_url_carpeta(){
+    local root="${1%/}" folder="$2" enc
+    folder="${folder#/}"
+    folder="${folder%/}"
+    [[ -z "$folder" ]] && { printf '%s/' "$root"; return; }
+    enc="$(nc_urlencode_path "$folder")"
+    printf '%s/%s' "$root" "$enc"
+}
+
+
+nc_fstab_escape(){
+    local v="$1"
+    v=${v//\\/\\134}
+    v=${v// /\\040}
+    v=${v//$'\t'/\\011}
+    printf '%s' "$v"
+}
+
+conectar_nextcloud_remoto(){
+    clear
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}       CONECTAR NEXTCLOUD REMOTO${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
     echo
 
-    echo "Selecciona Vendor:"
-    echo -e "${YELLOW}1)${NC} nextcloud"
-    echo -e "${YELLOW}2)${NC} owncloud"
-    read -p "Opción: " V_OPT
+    [[ $EUID -ne 0 ]] && { echo -e "${RED}Ejecuta esta opción como root.${NC}"; nc_remote_pause; return; }
+    nc_instalar_davfs || { echo -e "${RED}No fue posible instalar davfs2.${NC}"; nc_remote_pause; return; }
+    command -v curl >/dev/null 2>&1 || apt-get install -y curl
 
-    case $V_OPT in
-        1) VENDOR="nextcloud" ;;
-        2) VENDOR="owncloud" ;;
-        *) echo "Opción inválida, usando nextcloud"; VENDOR="nextcloud" ;;
-    esac
+    read -rp "Servidor Nextcloud CPG (ej: https://cpg.midominio.cl): " SERVER
+    SERVER="${SERVER%/}"
+    read -rp "Usuario del Nextcloud CPG: " USER
+    read -srp "Contraseña / contraseña de aplicación: " PASS; echo
 
-    # ================= VALIDACIÓN REAL =================
-    echo -e "${CYAN}Validando conexión WebDAV...${NC}"
-
-    STATUS=$(curl -u "$USER:$PASS" -s -o /dev/null -w "%{http_code}" "$URL")
-
-    if [[ "$STATUS" != "200" && "$STATUS" != "207" ]]; then
-        echo -e "${RED}✖ Error de conexión o credenciales incorrectas (HTTP $STATUS)${NC}"
-        read -p "ENTER..."
-        return
+    echo -e "${CYAN}Comprobando conexión y detectando ID WebDAV...${NC}"
+    if ! nc_detectar_root_webdav "$SERVER" "$USER" "$PASS"; then
+        echo -e "${RED}✘ No fue posible conectar por WebDAV (HTTP ${NC_WEBDAV_HTTP_CODE:-000}).${NC}"
+        case "${NC_WEBDAV_HTTP_CODE:-000}" in
+            401) echo -e "${YELLOW}Usuario o contraseña/token rechazados.${NC}" ;;
+            404) echo -e "${YELLOW}No se encontró la ruta WebDAV del usuario.${NC}" ;;
+            301|302|307|308) echo -e "${YELLOW}El servidor está redirigiendo la petición WebDAV.${NC}" ;;
+            000) echo -e "${YELLOW}No se pudo completar la conexión HTTP.${NC}" ;;
+            *) echo -e "${YELLOW}Revisa URL, usuario, token y respuesta del servidor.${NC}" ;;
+        esac
+        nc_remote_pause; return
     fi
-
-    echo -e "${GREEN}✔ Conexión válida${NC}"
-
-    # ================= CREAR REMOTO =================
-    rclone config create "$REMOTO" webdav \
-        url "$URL" \
-        vendor "$VENDOR" \
-        user "$USER" \
-        pass "$PASS"
-
-    log_action "Remoto creado: $REMOTO ($URL)"
-
-    echo -e "${GREEN}✔ Remoto '$REMOTO' creado y listo${NC}"
-    read -p "ENTER..."
-}
-
-# =======================================================
-# MONTAR REMOTO TEMPORAL / PERMANENTE RCLONE (FSTAB - SERVICE)
-# =======================================================
-
-montar_remoto() {
-
-    # ===== COLORES =====
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-
-    LOG="/tmp/rclone_pro.log"
-
-    log_action() { echo "$(date '+%F %T') - $1" >> "$LOG"; }
-    pausar() { read -p "ENTER para continuar..."; }
+    ROOT_URL="$NC_ROOT_URL"
+    echo -e "${GREEN}✔ Conexión WebDAV correcta${NC}"
+    echo -e "${GREEN}✔ Ruta WebDAV detectada: $ROOT_URL${NC}"
 
     while true; do
-        clear
-        echo -e "${CYAN}=== RCLONE REMOTOS ===${NC}"
-        echo -e "${YELLOW}1)${NC} Montar remoto / hacer permanente"
-        echo -e "${YELLOW}2)${NC} Listar montajes y servicios"
-        echo -e "${YELLOW}3)${NC} Desmontar / eliminar fstab y servicios"
-        echo -e "${YELLOW}0)${NC} Salir"
-        read -p "Selecciona opción: " MENU_OP
+        echo
+        echo -e "${CYAN}Carpetas disponibles en CPG:${NC}"
+        echo -e "${YELLOW}1)${NC} Toda la cuenta del usuario"
+        echo -e "${YELLOW}2)${NC} Listar carpetas y elegir"
+        echo -e "${YELLOW}M)${NC} Escribir ruta manual"
+        echo -e "${YELLOW}0)${NC} Cancelar"
+        read -rp "Selecciona: " SEL
 
-        case "$MENU_OP" in
-            1)
-                # ===== LISTAR REMOTOS =====
-                REMOTOS=$(rclone listremotes)
-                if [[ -z "$REMOTOS" ]]; then
-                    echo -e "${RED}✘ No hay remotos configurados${NC}"
-                    pausar
-                    continue
-                fi
-                echo -e "${CYAN}Remotos disponibles:${NC}"
-                i=1; declare -A REMAP
-                for R in $REMOTOS; do
-                    echo -e "${YELLOW}$i)${NC} ${R%:}"
-                    REMAP[$i]="${R%:}"
-                    ((i++))
-                done
-                read -p "Selecciona el remoto: " SEL
-                REMOTO="${REMAP[$SEL]}"
-                [[ -z "$REMOTO" ]] && echo -e "${RED}✘ Opción inválida${NC}" && pausar && continue
-
-                # ===== RUTAS =====
-                read -p "Ruta remota (ej: /backup, Enter para todo): " REMOTE_PATH
-                read -p "Ruta local (ej: /mnt/webdav/nombre): " LOCAL_PATH
-                [[ -z "$LOCAL_PATH" ]] && echo -e "${RED}✘ Ruta local obligatoria${NC}" && pausar && continue
-                mkdir -p "$LOCAL_PATH"
-
-                # ===== Usuario Nextcloud =====
-                read -p "Usuario Nextcloud (ej: www-data) para permisos: " NC_USER
-                [[ -z "$NC_USER" ]] && NC_USER="www-data"
-                NC_UID=$(id -u $NC_USER 2>/dev/null)
-                NC_GID=$(id -g $NC_USER 2>/dev/null)
-                [[ -z "$NC_UID" || -z "$NC_GID" ]] && echo -e "${RED}Usuario Nextcloud no existe${NC}" && pausar && continue
-
-                # ===== Montaje temporal =====
-                echo -e "${CYAN}Montando $REMOTO temporalmente...${NC}"
-                rclone mount "$REMOTO:$REMOTE_PATH" "$LOCAL_PATH" \
-                    --daemon \
-                    --vfs-cache-mode writes \
-                    --log-file="/tmp/rclone_mount_$REMOTO.log" \
-                    --log-level INFO \
-                    --allow-other \
-                    --uid $NC_UID \
-                    --gid $NC_GID
-                sleep 2
-                if mountpoint -q "$LOCAL_PATH"; then
-                    echo -e "${GREEN}✔ Montado correctamente en $LOCAL_PATH${NC}"
-                    log_action "MOUNT TEMP $REMOTO:$REMOTE_PATH -> $LOCAL_PATH"
-                else
-                    echo -e "${RED}✘ Error al montar temporal${NC}"
-                    pausar
-                    continue
-                fi
-
-                # ===== OPCIONES DE PERMANENCIA =====
-                echo
-                echo "Opciones de montaje permanente:"
-                echo -e "${YELLOW}1)${NC} Fstab (_netdev,nofail)"
-                echo -e "${YELLOW}2)${NC} Crear systemd service"
-                echo -e "${YELLOW}3)${NC} Ambos (fstab + systemd)"
-                echo -e "${YELLOW}0)${NC} Ninguno"
-                read -p "Selecciona opción: " PERM_OP
-
-                case "$PERM_OP" in
-                    1|3)
-                        FSTAB_LINE="$REMOTO:$REMOTE_PATH $LOCAL_PATH fuse.rclone _netdev,nofail,allow-other,uid=$NC_UID,gid=$NC_GID,umask=002 0 0"
-                        if grep -q "^$REMOTO:$REMOTE_PATH" /etc/fstab 2>/dev/null; then
-                            sudo sed -i "s|^$REMOTO:$REMOTE_PATH.*|$FSTAB_LINE|" /etc/fstab
-                            echo "✔ Entrada fstab actualizada"
-                        else
-                            echo "$FSTAB_LINE" | sudo tee -a /etc/fstab > /dev/null
-                            echo "✔ Entrada fstab agregada"
-                        fi
-                        ;;
-                esac
-
-                if [[ "$PERM_OP" == "2" || "$PERM_OP" == "3" ]]; then
-                    SERVICE_NAME="rclone-${REMOTO// /_}.service"
-                    SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
-                    sudo tee "$SERVICE_FILE" > /dev/null <<EOF
-[Unit]
-Description=Montaje Rclone $REMOTO
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=$NC_USER
-Group=$NC_USER
-ExecStart=/usr/bin/rclone mount $REMOTO:$REMOTE_PATH $LOCAL_PATH --vfs-cache-mode writes --allow-other --uid $NC_UID --gid $NC_GID
-ExecStop=/bin/fusermount -u $LOCAL_PATH
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-                    sudo systemctl daemon-reload
-                    sudo systemctl enable "$SERVICE_NAME"
-                    sudo systemctl start "$SERVICE_NAME"
-                    echo "✔ Service systemd $SERVICE_NAME creado y activado"
-                fi
-
-                pausar
-                ;;
+        case "$SEL" in
+            1) REMOTE_FOLDER=""; break ;;
             2)
-                # ===== LISTAR MONTAJES =====
-                echo -e "${CYAN}Montajes activos:${NC}"
-                mount | grep rclone || echo "No hay montajes activos"
                 echo
-                echo -e "${CYAN}Servicios Rclone creados:${NC}"
-                systemctl list-units --type=service | grep rclone || echo "No hay servicios rclone"
-                pausar
-                ;;
-            3)
-                # ===== DESMONTAR / ELIMINAR =====
-                echo -e "${CYAN}Montajes activos:${NC}"
-                mapfile -t MONTES < <(mount | grep rclone | awk '{print $3}')
-                if [ ${#MONTES[@]} -eq 0 ]; then echo "No hay montajes"; pausar; continue; fi
-                for i in "${!MONTES[@]}"; do echo "$((i+1))) ${MONTES[$i]}"; done
-                read -p "Selecciona montaje a desmontar (ENTER para cancelar): " NUM
-                [[ -z "$NUM" ]] && continue
-                [[ ! "$NUM" =~ ^[0-9]+$ || "$NUM" -lt 1 || "$NUM" -gt ${#MONTES[@]} ]] && echo "Opción inválida" && pausar && continue
-                LOCAL_PATH="${MONTES[$((NUM-1))]}"
-                REMOTE_URL=$(grep " $LOCAL_PATH " /etc/fstab | awk '{print $1}')
-
-                # Desmontar si está activo
-                if mountpoint -q "$LOCAL_PATH"; then
-                    sudo umount "$LOCAL_PATH" 2>/dev/null || sudo umount -l "$LOCAL_PATH"
-                    echo -e "${GREEN}✔ Desmontado $LOCAL_PATH${NC}"
+                echo -e "${CYAN}Consultando carpetas de CPG...${NC}"
+                mapfile -t FOLDERS < <(nc_listar_carpetas_webdav "$ROOT_URL" "$USER" "$PASS")
+                if (( ${#FOLDERS[@]} == 0 )); then
+                    echo -e "${YELLOW}⚠ No se encontraron carpetas de primer nivel.${NC}"
+                    echo -e "${YELLOW}Puedes usar M para escribir la ruta manualmente.${NC}"
+                    continue
                 fi
-
-                # Eliminar fstab
-                # Buscar línea exacta en fstab usando el punto de montaje
-LINEA=$(awk -v mnt="$LOCAL_PATH" '$2 == mnt {print $0}' /etc/fstab)
-
-if [ -z "$LINEA" ]; then
-    echo -e "${YELLOW}No se encontró en fstab${NC}"
-else
-    echo
-    echo -e "${CYAN}Se eliminará esta línea de fstab:${NC}"
-    echo -e "${YELLOW}$LINEA${NC}"
-    echo
-
-    read -p "¿Confirmar eliminación? (s/n): " CONF
-    [[ ! "$CONF" =~ ^[sS]$ ]] && {
-        echo "Cancelado"
-        pausar
-        continue
-    }
-
-    # Obtener URL
-    REMOTE_URL=$(echo "$LINEA" | awk '{print $1}')
-
-    # Backup
-    sudo cp /etc/fstab /etc/fstab.bak.$(date +%Y%m%d_%H%M%S)
-
-    # Eliminar línea exacta
-    sudo grep -vF "$LINEA" /etc/fstab | sudo tee /etc/fstab > /dev/null
-
-    echo -e "${GREEN}✔ Entrada fstab eliminada correctamente${NC}"
-fi
-
-                # Eliminar service
-                SERVICE_NAME="rclone-${REMOTE_URL// /_}.service"
-                SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
-                if [ -f "$SERVICE_FILE" ]; then
-                    sudo systemctl stop "$SERVICE_NAME"
-                    sudo systemctl disable "$SERVICE_NAME"
-                    sudo rm -f "$SERVICE_FILE"
-                    sudo systemctl daemon-reload
-                    echo -e "${GREEN}✔ Service $SERVICE_NAME eliminado${NC}"
+                echo -e "${CYAN}Seleccione la carpeta que desea conectar:${NC}"
+                for i in "${!FOLDERS[@]}"; do echo -e "${YELLOW}$((i+1)))${NC} ${FOLDERS[$i]}"; done
+                echo -e "${YELLOW}0)${NC} Volver"
+                read -rp "Carpeta: " FSEL
+                [[ "$FSEL" == "0" ]] && continue
+                if [[ "$FSEL" =~ ^[0-9]+$ ]] && (( FSEL >= 1 && FSEL <= ${#FOLDERS[@]} )); then
+                    REMOTE_FOLDER="${FOLDERS[$((FSEL-1))]}"
+                    break
                 fi
-
-                pausar
+                echo -e "${RED}Opción inválida.${NC}"
                 ;;
-            0)
+            [mM])
+                read -rp "Carpeta/ruta remota (ej: Colegio Pablo Garrido o Documentos/Compartido): " REMOTE_FOLDER
+                REMOTE_FOLDER="${REMOTE_FOLDER#/}"; REMOTE_FOLDER="${REMOTE_FOLDER%/}"
+                [[ -z "$REMOTE_FOLDER" ]] && { echo -e "${RED}Ruta vacía.${NC}"; continue; }
                 break
                 ;;
-            *)
-                echo -e "${RED}Opción inválida${NC}"
-                pausar
-                ;;
+            0) return ;;
+            *) echo -e "${RED}Opción inválida.${NC}" ;;
         esac
     done
+
+    # Validar por HTTP/1.1 la carpeta elegida. Esto confirma que existe,
+    # pero davfs2 montará SIEMPRE la raíz para evitar 404 en subcarpetas.
+    REMOTE_URL="$(nc_url_carpeta "$ROOT_URL" "$REMOTE_FOLDER")"
+    echo -e "${CYAN}Validando carpeta seleccionada...${NC}"
+    echo "WebDAV: $REMOTE_URL"
+    if ! nc_probar_credenciales "$REMOTE_URL" "$USER" "$PASS"; then
+        echo -e "${RED}✘ La carpeta seleccionada no es accesible (HTTP ${NC_WEBDAV_HTTP_CODE:-000}).${NC}"
+        nc_remote_pause; return
+    fi
+    echo -e "${GREEN}✔ Carpeta encontrada en CPG${NC}"
+
+    DEFAULT_NAME="CPG-${REMOTE_FOLDER:-Cuenta}"
+    DEFAULT_NAME="${DEFAULT_NAME// /-}"
+    read -rp "Nombre en LLANCOR [${DEFAULT_NAME}]: " NAME
+    NAME="${NAME:-$DEFAULT_NAME}"
+    NAME="$(echo "$NAME" | tr -cs '[:alnum:]_.-' '-')"
+    NAME="${NAME%-}"
+
+    MOUNT_POINT="$NC_REMOTE_BASE/$NAME"
+    ROOT_MOUNT="$NC_REMOTE_BASE/.webdav-root-$NAME"
+    SOURCE_PATH="$ROOT_MOUNT"
+    [[ -n "$REMOTE_FOLDER" ]] && SOURCE_PATH="$ROOT_MOUNT/$REMOTE_FOLDER"
+
+    mkdir -p "$MOUNT_POINT" "$ROOT_MOUNT" /etc/davfs2
+    touch "$NC_REMOTE_DB" "$NC_REMOTE_LOG" /etc/davfs2/secrets
+    chmod 600 "$NC_REMOTE_DB" /etc/davfs2/secrets
+
+    NC_USER="www-data"
+    NC_UID=$(id -u "$NC_USER" 2>/dev/null)
+    NC_GID=$(id -g "$NC_USER" 2>/dev/null)
+    [[ -z "$NC_UID" || -z "$NC_GID" ]] && { echo -e "${RED}✘ No existe www-data.${NC}"; nc_remote_pause; return; }
+
+    # davfs2 usa credenciales de la RAÍZ WebDAV.
+    sed -i "\|^$ROOT_URL[[:space:]]|d" /etc/davfs2/secrets
+    printf '%s %s %s\n' "$ROOT_URL" "$USER" "$PASS" >> /etc/davfs2/secrets
+
+    # Limpiar configuración anterior del mismo nombre/puntos de montaje.
+    cp /etc/fstab "/etc/fstab.bak.$(date +%Y%m%d_%H%M%S)"
+    awk -v a="$MOUNT_POINT" -v b="$ROOT_MOUNT" '$2 != a && $2 != b' /etc/fstab > /tmp/fstab.nc.$$ \
+        && cat /tmp/fstab.nc.$$ > /etc/fstab && rm -f /tmp/fstab.nc.$$
+
+    ROOT_ESC="$(nc_fstab_escape "$ROOT_MOUNT")"
+    MNT_ESC="$(nc_fstab_escape "$MOUNT_POINT")"
+    SRC_ESC="$(nc_fstab_escape "$SOURCE_PATH")"
+
+    # 1) Montar raíz WebDAV. 2) Exponer solo la carpeta seleccionada con bind.
+    echo "$ROOT_URL $ROOT_ESC davfs _netdev,nofail,rw,uid=$NC_UID,gid=$NC_GID,dir_mode=0770,file_mode=0660 0 0" >> /etc/fstab
+    echo "$SRC_ESC $MNT_ESC none bind,nofail,x-systemd.requires-mounts-for=$ROOT_ESC 0 0" >> /etc/fstab
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    umount "$MOUNT_POINT" >/dev/null 2>&1 || true
+    umount "$ROOT_MOUNT" >/dev/null 2>&1 || true
+
+    echo -e "${CYAN}Montando raíz WebDAV de CPG...${NC}"
+    if ! mount "$ROOT_MOUNT"; then
+        echo -e "${RED}✘ No fue posible montar la raíz WebDAV.${NC}"
+        nc_remote_pause; return
+    fi
+
+    if [[ ! -d "$SOURCE_PATH" ]]; then
+        echo -e "${RED}✘ La carpeta no apareció dentro del montaje raíz:${NC}"
+        echo "$SOURCE_PATH"
+        umount "$ROOT_MOUNT" >/dev/null 2>&1 || true
+        nc_remote_pause; return
+    fi
+
+    echo -e "${CYAN}Exponiendo carpeta seleccionada en LLANCOR...${NC}"
+    if ! mount --bind "$SOURCE_PATH" "$MOUNT_POINT"; then
+        echo -e "${RED}✘ No fue posible crear el bind mount.${NC}"
+        umount "$ROOT_MOUNT" >/dev/null 2>&1 || true
+        nc_remote_pause; return
+    fi
+
+    # Registro sin contraseña.
+    awk -F'|' -v n="$NAME" '$1 != n' "$NC_REMOTE_DB" > /tmp/ncremote.$$ || true
+    printf '%s|%s|%s|%s|%s|%s|%s\n' \
+        "$NAME" "$SERVER" "$USER" "$REMOTE_FOLDER" "$ROOT_URL" "$ROOT_MOUNT" "$MOUNT_POINT" >> /tmp/ncremote.$$
+    cat /tmp/ncremote.$$ > "$NC_REMOTE_DB"; rm -f /tmp/ncremote.$$
+
+    echo -e "${CYAN}Probando escritura en CPG...${NC}"
+    TESTFILE="$MOUNT_POINT/.llancor-webdav-test-$$"
+    if sudo -u www-data touch "$TESTFILE" 2>/dev/null && sudo -u www-data rm -f "$TESTFILE" 2>/dev/null; then
+        WRITE_STATUS="LECTURA / ESCRITURA"
+        echo -e "${GREEN}✔ Lectura y escritura correctas${NC}"
+    else
+        WRITE_STATUS="LECTURA OK / ESCRITURA NO CONFIRMADA"
+        echo -e "${YELLOW}⚠ Montado, pero no se pudo confirmar escritura como www-data.${NC}"
+    fi
+
+    nc_remote_log "CONECTADO $NAME | $ROOT_URL | ${REMOTE_FOLDER:-ROOT} -> $MOUNT_POINT"
+    echo
+    echo -e "${GREEN}══════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}✔ CONFIGURACIÓN TERMINADA${NC}"
+    echo -e "${GREEN}══════════════════════════════════════════════${NC}"
+    echo "Servidor : $SERVER"
+    echo "Carpeta  : ${REMOTE_FOLDER:-Toda la cuenta}"
+    echo "Montaje  : $MOUNT_POINT"
+    echo "Modo     : $WRITE_STATUS"
+    echo "Inicio   : AUTOMÁTICO (WebDAV raíz + bind)"
+    echo
+    echo -e "${YELLOW}En Nextcloud LLANCOR:${NC}"
+    echo "Administración → Almacenamiento externo → Local"
+    echo "Ruta: $MOUNT_POINT"
+    echo
+    nc_remote_pause
 }
 
-# =======================================================
-# Listar Carpeta Remota Configurada
-# =======================================================
-listar_archivos_remoto() {
-
-    instalar_si_falta rclone || return
-
-    # Obtener lista de remotos
-    mapfile -t REMOTOS < <(rclone listremotes)
-
-    # 🔴 Validar si hay remotos configurados
-    if [ ${#REMOTOS[@]} -eq 0 ]; then
-        echo -e "${RED}❌ No hay remotos configurados${NC}"
-        read -p "Presiona ENTER para continuar..."
-        return 1
-    fi
-
-    echo -e "${CYAN}Remotos disponibles:${NC}"
-    for i in "${!REMOTOS[@]}"; do
-        echo "$((i+1))) ${REMOTOS[$i]}"
-    done
-
-    echo
-    read -p "Selecciona un remoto: " OPCION
-
-    # 🔴 Validación de la opción
-    if ! [[ "$OPCION" =~ ^[0-9]+$ ]] || [ "$OPCION" -lt 1 ] || [ "$OPCION" -gt ${#REMOTOS[@]} ]; then
-        echo -e "${RED}Opción inválida${NC}"
-        read -p "Presiona ENTER para continuar..."
-        return 1
-    fi
-
-    REM="${REMOTOS[$((OPCION-1))]}"
-
-    echo -e "${CYAN}Listando contenido de $REM...${NC}"
-    rclone lsd "$REM"
-
-    echo
-    read -p "Presiona ENTER para continuar..." 
+listar_nextcloud_remotos(){
+    clear
+    echo -e "${CYAN}=== CARPETAS NEXTCLOUD REMOTAS ===${NC}"
+    [[ ! -s "$NC_REMOTE_DB" ]] && { echo "No hay carpetas configuradas."; nc_remote_pause; return; }
+    local i=1 st
+    while IFS='|' read -r name server user folder rooturl rootmnt mnt; do
+        mountpoint -q "$mnt" && st="${GREEN}MONTADO${NC}" || st="${RED}DESCONECTADO${NC}"
+        echo -e "$i) ${YELLOW}$name${NC} - $st"
+        echo "   CPG   : $server / ${folder:-Toda la cuenta}"
+        echo "   Local : $mnt"
+        ((i++))
+    done < "$NC_REMOTE_DB"
+    nc_remote_pause
 }
 
-# =======================================================
-# RCLONE COPIA DE SEGURIDAD AL MISMO SERVER
-# =======================================================
-rclone_copy() {
+probar_nextcloud_remoto(){
+    clear
+    [[ ! -s "$NC_REMOTE_DB" ]] && { echo "No hay carpetas configuradas."; nc_remote_pause; return; }
+    mapfile -t REMOTE_RECORDS < "$NC_REMOTE_DB"
+    echo -e "${CYAN}Selecciona conexión a probar:${NC}"
+    for i in "${!REMOTE_RECORDS[@]}"; do IFS='|' read -r n _ <<< "${REMOTE_RECORDS[$i]}"; echo "$((i+1))) $n"; done
+    read -rp "Opción: " N
+    [[ "$N" =~ ^[0-9]+$ ]] && ((N>=1 && N<=${#REMOTE_RECORDS[@]})) || { echo "Opción inválida"; nc_remote_pause; return; }
+    IFS='|' read -r name server user folder rooturl rootmnt mnt <<< "${REMOTE_RECORDS[$((N-1))]}"
 
-    echo -e "${CYAN}=== RCLONE PRO ===${NC}"
-
-    # -------- ORIGEN --------
-    read -p "Ruta ORIGEN (ej: /mnt/webdav/user): " ORIGEN < /dev/tty
-
-    # -------- DESTINO --------
-    read -p "Ruta DESTINO en remoto del user (ej: /backup): " DEST < /dev/tty
-
-    # -------- REMOTO --------
-    echo
-    echo "Remoto:"
-    echo "1) Elegir de la lista (Recomendado)"
-    echo "2) Escribir manual (Listar antes para ver)"
-
-    read -p "Opción: " OPC < /dev/tty
-
-    case "$OPC" in
-        1)
-            mapfile -t REMOTOS < <(rclone listremotes 2>/dev/null | sed 's/://')
-
-            if [ ${#REMOTOS[@]} -eq 0 ]; then
-                echo -e "${RED}No hay remotos configurados${NC}"
-                read -p "ENTER..." < /dev/tty
-                return
-            fi
-
-            echo
-            echo "Remotos disponibles:"
-            for i in "${!REMOTOS[@]}"; do
-                echo "$((i+1))) ${REMOTOS[$i]}"
-            done
-
-            read -p "Número: " NUM < /dev/tty
-
-            if [[ "$NUM" =~ ^[0-9]+$ ]] && [ "$NUM" -ge 1 ] && [ "$NUM" -le ${#REMOTOS[@]} ]; then
-                REMOTO="${REMOTOS[$((NUM-1))]}"
-            else
-                echo "Selección inválida"
-                return
-            fi
-        ;;
-        2)
-            read -p "Remoto: " REMOTO < /dev/tty
-        ;;
-        *) echo "Opción inválida"; return ;;
-    esac
-
-    # -------- MODO --------
-    echo
-    echo "Modo de copia:"
-    echo "1) Copy (seguro, no borra nada)"
-    echo "2) Sync (modo espejo, BORRA en destino)"
-
-    read -p "Opción: " MODO < /dev/tty
-
-    case "$MODO" in
-        1)
-            CMD="rclone copy \"$ORIGEN\" \"$REMOTO:$DEST\" --progress"
-            ;;
-        2)
-            echo
-            echo -e "${RED}⚠️ MODO ESPEJO:${NC} borrará archivos en el destino"
-            read -p "¿Continuar? (s/n): " CONFIRM < /dev/tty
-            [[ ! "$CONFIRM" =~ ^[sS]$ ]] && echo "Cancelado" && return
-
-            CMD="rclone sync \"$ORIGEN\" \"$REMOTO:$DEST\" --progress"
-            ;;
-        *)
-            echo "Opción inválida"
-            return
-            ;;
-    esac
-
-    # -------- RESUMEN --------
-    echo
-    echo -e "${CYAN}Resumen:${NC}"
-    echo "Origen : $ORIGEN"
-    echo "Destino: $REMOTO:$DEST"
-    echo "Comando: $CMD"
-
-    # -------- EJECUTAR --------
-    echo
-    read -p "¿Ejecutar ahora? (s/n): " RUN < /dev/tty
-    if [[ "$RUN" =~ ^[sS]$ ]]; then
-        eval "$CMD"
+    if ! mountpoint -q "$rootmnt"; then
+        echo "Montando raíz WebDAV..."
+        mount "$rootmnt" >/dev/null 2>&1 || true
+    fi
+    if mountpoint -q "$rootmnt" && ! mountpoint -q "$mnt"; then
+        src="$rootmnt"; [[ -n "$folder" ]] && src="$rootmnt/$folder"
+        [[ -d "$src" ]] && mount --bind "$src" "$mnt" >/dev/null 2>&1 || true
     fi
 
-    # -------- CRON --------
-    echo
-    read -p "¿Programar automático? (s/n): " AUTO < /dev/tty
-    if [[ "$AUTO" =~ ^[sS]$ ]]; then
-
-        echo
-        echo "Frecuencia:"
-        echo "1) Cada 5 minutos"
-        echo "2) Cada 1 hora"
-        echo "3) Diario (03:00)"
-        echo "4) Semanal (domingo 03:00)"
-        echo "5) Personalizado"
-
-        read -p "Opción: " FREQ < /dev/tty
-
-        case "$FREQ" in
-            1) CRON="*/5 * * * *" ;;
-            2) CRON="0 * * * *" ;;
-            3) CRON="0 3 * * *" ;;
-            4) CRON="0 3 * * 0" ;;
-            5)
-                echo "Formato: MIN HORA DIA MES DIA_SEMANA"
-                read -p "Cron: " CRON < /dev/tty
-                ;;
-            *)
-                echo "Opción inválida"
-                return
-                ;;
-        esac
-
-        # evitar duplicados
-        (crontab -l 2>/dev/null | grep -v -F "$CMD"; echo "$CRON $CMD") | crontab -
-
-        echo -e "${GREEN}✔ Tarea programada${NC}"
-        echo "Cron: $CRON"
+    if mountpoint -q "$mnt" && ls "$mnt" >/dev/null 2>&1; then
+        echo -e "${GREEN}✔ $name conectado y accesible${NC}"
+        T="$mnt/.llancor-webdav-test-$$"
+        if sudo -u www-data touch "$T" 2>/dev/null && sudo -u www-data rm -f "$T" 2>/dev/null; then
+            echo -e "${GREEN}✔ Escritura correcta desde www-data${NC}"
+        else
+            echo -e "${YELLOW}⚠ Lectura correcta; escritura no confirmada${NC}"
+        fi
+    else
+        echo -e "${RED}✘ $name no está accesible${NC}"
     fi
-
-    log_action "RCLONE $CMD"
-
-    echo
-    read -p "ENTER para continuar..." < /dev/tty
+    nc_remote_pause
 }
-# =======================================================
-# BORRAR CONFIGURACION REMOTA / RCLONE
-# =======================================================
-borrar_config_remota() {
 
-    mapfile -t REMOTOS < <(rclone listremotes)
-
-    if [ ${#REMOTOS[@]} -eq 0 ]; then
-        echo "No hay remotos configurados"
-        return 1
-    fi
-
-    echo -e "${CYAN}Remotos disponibles:${NC}"
-    for i in "${!REMOTOS[@]}"; do
-        echo "$((i+1))) ${REMOTOS[$i]}"
-    done
-
-    echo
-    read -p "Selecciona número a eliminar: " OPCION
-
-    # Validación
-    if ! [[ "$OPCION" =~ ^[0-9]+$ ]] || [ "$OPCION" -lt 1 ] || [ "$OPCION" -gt ${#REMOTOS[@]} ]; then
-        echo -e "${RED}Opción inválida${NC}"
-        return 1
-    fi
-
-    REM="${REMOTOS[$((OPCION-1))]}"
-    REM="${REM%:}"   # quitar ":" final
-
-    read -p "¿Seguro que deseas eliminar '$REM'? (s/n): " CONF
+desconectar_nextcloud_remoto(){
+    clear
+    [[ ! -s "$NC_REMOTE_DB" ]] && { echo "No hay carpetas configuradas."; nc_remote_pause; return; }
+    mapfile -t REMOTE_RECORDS < "$NC_REMOTE_DB"
+    echo -e "${CYAN}Selecciona conexión a eliminar:${NC}"
+    for i in "${!REMOTE_RECORDS[@]}"; do IFS='|' read -r n _ <<< "${REMOTE_RECORDS[$i]}"; echo "$((i+1))) $n"; done
+    read -rp "Opción: " N
+    [[ "$N" =~ ^[0-9]+$ ]] && ((N>=1 && N<=${#REMOTE_RECORDS[@]})) || { echo "Opción inválida"; nc_remote_pause; return; }
+    IFS='|' read -r name server user folder rooturl rootmnt mnt <<< "${REMOTE_RECORDS[$((N-1))]}"
+    read -rp "¿Eliminar '$name' de LLANCOR? (s/n): " CONF
     [[ "$CONF" =~ ^[sS]$ ]] || return
 
-    rclone config delete "$REM"
+    umount "$mnt" >/dev/null 2>&1 || umount -l "$mnt" >/dev/null 2>&1 || true
+    umount "$rootmnt" >/dev/null 2>&1 || umount -l "$rootmnt" >/dev/null 2>&1 || true
 
-    echo -e "${GREEN}✔ Remoto eliminado: $REM${NC}"
-    log_action "Remoto eliminado: $REM"
+    cp /etc/fstab "/etc/fstab.bak.$(date +%Y%m%d_%H%M%S)"
+    awk -v a="$mnt" -v b="$rootmnt" '$2 != a && $2 != b' /etc/fstab > /tmp/fstab.nc.$$ \
+        && cat /tmp/fstab.nc.$$ > /etc/fstab && rm -f /tmp/fstab.nc.$$
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    sed -i "\|^$rooturl[[:space:]]|d" /etc/davfs2/secrets 2>/dev/null || true
+    sed -i "${N}d" "$NC_REMOTE_DB"
+    rmdir "$mnt" >/dev/null 2>&1 || true
+    rmdir "$rootmnt" >/dev/null 2>&1 || true
+    nc_remote_log "DESCONECTADO $name | $rooturl"
+    echo -e "${GREEN}✔ Conexión eliminada. Los archivos originales de CPG NO fueron borrados.${NC}"
+    nc_remote_pause
 }
 
-# ===============================
-# GESTION DE CRONTAB (EDITART/BORRAR/CREAR TAREAS)
-# ===============================
-gestionar_editar_cron() {
 
-    HISTORIAL="/tmp/cron_historial.log"
+# =======================================================
+# SINCRONIZAR WEBDAV REMOTO <-> CARPETA DE USUARIO NEXTCLOUD
+# =======================================================
+nc_detectar_instalacion(){
+    NC_APP_DIR=""
+    NC_DATA_DIR=""
 
-    # ================= COLORES =================
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
+    for d in /var/www/nextcloud /var/www/html /srv/nextcloud /opt/nextcloud; do
+        if [[ -f "$d/occ" ]]; then
+            NC_APP_DIR="$d"
+            break
+        fi
+    done
 
-    validar_cron() {
-        [[ "$1" =~ ^([0-9*/,-]+\ ){4}[0-9*/,-]+$ ]]
+    if [[ -n "$NC_APP_DIR" ]] && command -v php >/dev/null 2>&1; then
+        NC_DATA_DIR=$(sudo -u www-data php "$NC_APP_DIR/occ" config:system:get datadirectory 2>/dev/null | tail -n1)
+    fi
+
+    if [[ -z "$NC_DATA_DIR" || ! -d "$NC_DATA_DIR" ]]; then
+        for d in /var/www/nextcloud-data /var/www/html/data /srv/nextcloud-data; do
+            [[ -d "$d" ]] && { NC_DATA_DIR="$d"; break; }
+        done
+    fi
+
+    [[ -n "$NC_APP_DIR" && -f "$NC_APP_DIR/occ" && -n "$NC_DATA_DIR" && -d "$NC_DATA_DIR" ]]
+}
+
+nc_listar_usuarios_locales(){
+    local d u
+    NC_LOCAL_USERS=()
+    while IFS= read -r d; do
+        [[ -d "$d/files" ]] || continue
+        u="$(basename "$d")"
+        [[ "$u" == appdata_* || "$u" == updater-* || "$u" == "__groupfolders" ]] && continue
+        NC_LOCAL_USERS+=("$u")
+    done < <(find "$NC_DATA_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+}
+
+nc_crear_job_rclone_directo(){
+    local job="$1" mode="$2" remote_spec="$3" dest="$4" ncuser="$5" appdir="$6" config="$7"
+    local script="/usr/local/sbin/nc-remote-sync-${job}.sh"
+
+    cat > "$script" <<EOF
+#!/bin/bash
+set -u
+MODE='$mode'
+SOURCE='$remote_spec'
+DEST='$dest'
+NCUSER='$ncuser'
+APPDIR='$appdir'
+RCLONE_CONFIG='$config'
+LOG='/var/log/nc-remote-sync-${job}.log'
+LOCK='/run/lock/nc-remote-sync-${job}.lock'
+
+exec 9>"\$LOCK"
+flock -n 9 || exit 0
+mkdir -p "\$DEST"
+
+case "\$MODE" in
+  1)
+    /usr/bin/rclone sync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 \\
+      --create-empty-src-dirs --log-file="\$LOG" --log-level INFO
+    ;;
+  2)
+    /usr/bin/rclone sync "\$DEST" "\$SOURCE" --config "\$RCLONE_CONFIG" --disable-http2 \\
+      --create-empty-src-dirs --log-file="\$LOG" --log-level INFO
+    ;;
+  3)
+    /usr/bin/rclone bisync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 \\
+      --log-file="\$LOG" --log-level INFO
+    ;;
+  *) exit 2 ;;
+esac
+RC=\$?
+
+if [[ \$RC -eq 0 ]]; then
+    chown -R www-data:www-data "\$DEST" 2>/dev/null || true
+    sudo -u www-data php "\$APPDIR/occ" files:scan --path="\$NCUSER/files/$(basename "$dest")" >> "\$LOG" 2>&1 || true
+fi
+exit \$RC
+EOF
+    chmod 750 "$script"
+    echo "$script"
+}
+
+sincronizar_remoto_usuario_nextcloud(){
+    clear
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  SINCRONIZAR WEBDAV ↔ USUARIO NEXTCLOUD${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+    echo
+
+    command -v rclone >/dev/null 2>&1 || {
+        echo -e "${YELLOW}rclone no está instalado. Instalando...${NC}"
+        apt-get update && apt-get install -y rclone || { echo -e "${RED}✘ No se pudo instalar rclone.${NC}"; nc_remote_pause; return; }
+    }
+    command -v flock >/dev/null 2>&1 || apt-get install -y util-linux >/dev/null 2>&1 || true
+
+    [[ -s "$NC_REMOTE_DB" ]] || { echo -e "${RED}No hay carpetas remotas configuradas.${NC}"; nc_remote_pause; return; }
+    nc_detectar_instalacion || {
+        echo -e "${RED}✘ No pude detectar Nextcloud/occ o el directorio data.${NC}"
+        nc_remote_pause; return
     }
 
-    validar_numero() {
-        [[ "$1" =~ ^[0-9]+$ ]]
-    }
+    echo "Nextcloud : $NC_APP_DIR"
+    echo "Data      : $NC_DATA_DIR"
+    echo
 
-    pausar() {
-        read -p "Presiona ENTER para continuar..."
-    }
+    mapfile -t REMOTE_RECORDS < <(awk -F'|' 'NF==7 && $1!="" && $5 ~ /^https?:\/\// {print}' "$NC_REMOTE_DB")
+    [[ ${#REMOTE_RECORDS[@]} -gt 0 ]] || { echo -e "${RED}✘ No hay registros remotos válidos.${NC}"; nc_remote_pause; return; }
+
+    echo -e "${CYAN}Carpetas remotas conectadas:${NC}"
+    for i in "${!REMOTE_RECORDS[@]}"; do
+        IFS='|' read -r n _ _ f _ _ m <<< "${REMOTE_RECORDS[$i]}"
+        if mountpoint -q -- "$m"; then st="${GREEN}MONTADA${NC}"; else st="${YELLOW}NO MONTADA${NC}"; fi
+        echo -e "$((i+1))) $n - ${f:-Toda la cuenta} [$st]"
+    done
+    read -rp "Seleccione carpeta remota: " N
+    [[ "$N" =~ ^[0-9]+$ ]] && ((N>=1 && N<=${#REMOTE_RECORDS[@]})) || { echo "Opción inválida"; nc_remote_pause; return; }
+
+    SELECTED_LINE="${REMOTE_RECORDS[$((N-1))]}"
+    IFS='|' read -r REMOTE_NAME SERVER RUSER RFOLDER ROOTURL ROOTMNT REMOTE_MNT <<< "$SELECTED_LINE"
+
+    [[ -n "$REMOTE_NAME" && -n "$RUSER" && -n "$ROOTURL" ]] || { echo -e "${RED}✘ Registro remoto inválido.${NC}"; nc_remote_pause; return; }
+
+    # Obtener la contraseña/token ya guardada por davfs2 para la raíz WebDAV.
+    PASS=$(awk -v u="$ROOTURL" '$1==u {print $3; exit}' /etc/davfs2/secrets 2>/dev/null)
+    if [[ -z "$PASS" ]]; then
+        echo -e "${RED}✘ No encontré la contraseña/token para:${NC}"
+        echo "$ROOTURL"
+        echo "Reconecta la carpeta con la opción 1 para guardar nuevamente las credenciales."
+        nc_remote_pause; return
+    fi
+
+    nc_listar_usuarios_locales
+    [[ ${#NC_LOCAL_USERS[@]} -gt 0 ]] || { echo -e "${RED}No encontré usuarios Nextcloud.${NC}"; nc_remote_pause; return; }
+    echo
+    echo -e "${CYAN}Usuarios Nextcloud LLANCOR:${NC}"
+    for i in "${!NC_LOCAL_USERS[@]}"; do echo "$((i+1))) ${NC_LOCAL_USERS[$i]}"; done
+    read -rp "Seleccione usuario: " U
+    [[ "$U" =~ ^[0-9]+$ ]] && ((U>=1 && U<=${#NC_LOCAL_USERS[@]})) || { echo "Opción inválida"; nc_remote_pause; return; }
+    NC_TARGET_USER="${NC_LOCAL_USERS[$((U-1))]}"
+
+    DEFAULT_FOLDER="$REMOTE_NAME"
+    read -rp "Nombre de carpeta dentro de Mis archivos [$DEFAULT_FOLDER]: " TARGET_FOLDER
+    TARGET_FOLDER="${TARGET_FOLDER:-$DEFAULT_FOLDER}"
+    TARGET_FOLDER="${TARGET_FOLDER#/}"; TARGET_FOLDER="${TARGET_FOLDER%/}"
+    [[ -n "$TARGET_FOLDER" && "$TARGET_FOLDER" != *".."* ]] || { echo -e "${RED}Nombre inválido.${NC}"; nc_remote_pause; return; }
+
+    DEST="$NC_DATA_DIR/$NC_TARGET_USER/files/$TARGET_FOLDER"
+    mkdir -p -- "$DEST"
+    chown -R www-data:www-data -- "$DEST" 2>/dev/null || true
+
+    echo
+    echo -e "${CYAN}Modo de sincronización:${NC}"
+    echo "1) CPG → LLANCOR"
+    echo "2) LLANCOR → CPG"
+    echo "3) CPG ↔ LLANCOR (bidireccional - recomendado)"
+    read -rp "Seleccione [3]: " MODE
+    MODE="${MODE:-3}"
+    [[ "$MODE" =~ ^[123]$ ]] || { echo "Opción inválida"; nc_remote_pause; return; }
+
+    JOB="$(echo "${REMOTE_NAME}-${NC_TARGET_USER}-${TARGET_FOLDER}" | tr -cs '[:alnum:]_.-' '-' | sed 's/-$//')"
+    LOG="/var/log/nc-remote-sync-${JOB}.log"
+    CONFIG_DIR="/etc/nextcloud-remote-sync"
+    RCLONE_CONFIG="$CONFIG_DIR/rclone-${JOB}.conf"
+    RCLONE_REMOTE="nc_${JOB}"
+    mkdir -p "$CONFIG_DIR"
+    touch "$RCLONE_CONFIG"
+    chmod 600 "$RCLONE_CONFIG"
+
+    # Crear/actualizar remoto rclone WebDAV DIRECTO. rclone guarda la contraseña ofuscada.
+    rclone config delete "$RCLONE_REMOTE" --config "$RCLONE_CONFIG" >/dev/null 2>&1 || true
+    if ! rclone config create "$RCLONE_REMOTE" webdav \
+        url "$ROOTURL" vendor nextcloud user "$RUSER" pass "$PASS" \
+        --config "$RCLONE_CONFIG" --non-interactive --obscure >/dev/null 2>&1; then
+        echo -e "${RED}✘ No fue posible crear el remoto rclone WebDAV.${NC}"
+        nc_remote_pause; return
+    fi
+
+    if [[ -n "$RFOLDER" ]]; then
+        REMOTE_SPEC="$RCLONE_REMOTE:$RFOLDER"
+    else
+        REMOTE_SPEC="$RCLONE_REMOTE:"
+    fi
+
+    echo
+    echo "WebDAV directo: $ROOTURL"
+    echo "Origen rclone : $REMOTE_SPEC"
+    echo "Destino local : $DEST"
+    echo "Usuario       : $NC_TARGET_USER"
+    echo
+
+    echo -e "${CYAN}Probando acceso directo con rclone...${NC}"
+    RCLONE_TEST_LOG="/tmp/rclone-webdav-test-${JOB}.log"
+    if ! rclone lsf "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --max-depth 1 \
+        > /dev/null 2>"$RCLONE_TEST_LOG"; then
+        echo -e "${RED}✘ rclone no pudo listar el remoto WebDAV.${NC}"
+        echo -e "${YELLOW}Detalle del error:${NC}"
+        tail -n 12 "$RCLONE_TEST_LOG" 2>/dev/null || true
+        echo
+        echo "Config: $RCLONE_CONFIG"
+        nc_remote_pause; return
+    fi
+    rm -f "$RCLONE_TEST_LOG"
+    echo -e "${GREEN}✔ Acceso WebDAV directo correcto${NC}"
+
+    case "$MODE" in
+        1)
+            echo -e "${CYAN}Realizando copia inicial CPG → LLANCOR...${NC}"
+            rclone sync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
+            RC=$?
+            ;;
+        2)
+            echo -e "${CYAN}Realizando copia inicial LLANCOR → CPG...${NC}"
+            rclone sync "$DEST" "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
+            RC=$?
+            ;;
+        3)
+            echo -e "${YELLOW}Primera ejecución bidireccional directa contra WebDAV.${NC}"
+            echo -e "${YELLOW}Se creará el estado inicial de rclone bisync.${NC}"
+            rclone bisync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --resync --progress --log-file="$LOG" --log-level INFO
+            RC=$?
+            ;;
+    esac
+
+    if [[ $RC -ne 0 ]]; then
+        echo -e "${RED}✘ La sincronización inicial falló (código $RC).${NC}"
+        echo "Log: $LOG"
+        nc_remote_pause; return
+    fi
+
+    chown -R www-data:www-data -- "$DEST" 2>/dev/null || true
+    echo -e "${CYAN}Actualizando índice de Nextcloud...${NC}"
+    sudo -u www-data php "$NC_APP_DIR/occ" files:scan --path="$NC_TARGET_USER/files/$TARGET_FOLDER" || true
+
+    JOB_SCRIPT=$(nc_crear_job_rclone_directo "$JOB" "$MODE" "$REMOTE_SPEC" "$DEST" "$NC_TARGET_USER" "$NC_APP_DIR" "$RCLONE_CONFIG")
+
+    echo
+    echo -e "${CYAN}Frecuencia automática:${NC}"
+    echo "1) Cada 5 minutos"
+    echo "2) Cada 15 minutos"
+    echo "3) Cada 30 minutos"
+    echo "4) Cada 1 hora"
+    echo "5) Solo manual"
+    read -rp "Seleccione [2]: " FREQ
+    FREQ="${FREQ:-2}"
+    case "$FREQ" in
+        1) CRON_EXPR="*/5 * * * *" ;;
+        2) CRON_EXPR="*/15 * * * *" ;;
+        3) CRON_EXPR="*/30 * * * *" ;;
+        4) CRON_EXPR="0 * * * *" ;;
+        5) CRON_EXPR="" ;;
+        *) CRON_EXPR="" ;;
+    esac
+
+    TAG="# NC-REMOTE-SYNC:$JOB"
+    (crontab -l 2>/dev/null | grep -vF "$TAG"; [[ -n "$CRON_EXPR" ]] && echo "$CRON_EXPR $JOB_SCRIPT $TAG") | crontab -
+
+    echo
+    echo -e "${GREEN}✔ SINCRONIZACIÓN CONFIGURADA${NC}"
+    echo "WebDAV     : $REMOTE_SPEC"
+    echo "Nextcloud  : $NC_TARGET_USER/files/$TARGET_FOLDER"
+    echo "Modo       : $([[ "$MODE" == 3 ]] && echo 'BIDIRECCIONAL' || ([[ "$MODE" == 1 ]] && echo 'CPG → LLANCOR' || echo 'LLANCOR → CPG'))"
+    echo "Automático : $([[ -n "$CRON_EXPR" ]] && echo "$CRON_EXPR" || echo 'NO (manual)')"
+    echo "Comando    : $JOB_SCRIPT"
+    echo "Log        : $LOG"
+    echo
+    echo -e "${GREEN}La sincronización ya NO pasa por davfs2; rclone habla directamente con WebDAV.${NC}"
+    nc_remote_log "SYNC DIRECT $JOB | $REMOTE_SPEC <-> $DEST | modo=$MODE | cron=${CRON_EXPR:-manual}"
+    nc_remote_pause
+}
+
+# =======================================================
+# GESTIONAR / QUITAR SINCRONIZACIONES NEXTCLOUD REMOTAS
+# =======================================================
+nc_sync_get_tag(){
+    local script="$1"
+    basename "$script" .sh | sed 's/^nc-remote-sync-//'
+}
+
+nc_sync_cron_line(){
+    local job="$1"
+    crontab -l 2>/dev/null | grep -F "# NC-REMOTE-SYNC:$job" | head -n1
+}
+
+nc_sync_set_cron(){
+    local job="$1" script="$2" expr="$3"
+    local tag="# NC-REMOTE-SYNC:$job" tmp
+    tmp=$(mktemp)
+    crontab -l 2>/dev/null | grep -vF "$tag" > "$tmp" || true
+    [[ -n "$expr" ]] && echo "$expr $script $tag" >> "$tmp"
+    crontab "$tmp"
+    rm -f "$tmp"
+}
+
+nc_sync_pick_frequency(){
+    local opt
+    echo "1) Cada 5 minutos" >&2
+    echo "2) Cada 15 minutos" >&2
+    echo "3) Cada 30 minutos" >&2
+    echo "4) Cada 1 hora" >&2
+    echo "5) Solo manual / desactivar automático" >&2
+    read -rp "Seleccione: " opt
+    case "$opt" in
+        1) echo "*/5 * * * *" ;;
+        2) echo "*/15 * * * *" ;;
+        3) echo "*/30 * * * *" ;;
+        4) echo "0 * * * *" ;;
+        5) echo "" ;;
+        *) return 1 ;;
+    esac
+}
+
+gestionar_sincronizaciones_nextcloud(){
+    local scripts=() i sel script job cron_line state source dest ncuser log mode choice expr ans ok freq rc
+
+    nc_detectar_instalacion >/dev/null 2>&1 || true
 
     while true; do
         clear
-        echo -e "${CYAN}=== GESTIONAR CRONTAB ===${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}      GESTIONAR SINCRONIZACIONES${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
         echo
-        echo -e "${YELLOW}1)${NC} Agregar tarea"
-        echo -e "${YELLOW}2)${NC} Listar tareas"
-        echo -e "${YELLOW}3)${NC} Editar tarea"
-        echo -e "${YELLOW}4)${NC} Eliminar tarea"
-        echo -e "${YELLOW}5)${NC} Activar/Desactivar tarea"
-        echo -e "${YELLOW}6)${NC} Historial"
-		echo -e "${YELLOW}7)${NC} Editar con nano (modo avanzado)"
+
+        mapfile -t scripts < <(find /usr/local/sbin -maxdepth 1 -type f -name 'nc-remote-sync-*.sh' 2>/dev/null | sort)
+        if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo -e "${YELLOW}No hay sincronizaciones configuradas.${NC}"
+            nc_remote_pause
+            return
+        fi
+
+        echo -e "${CYAN}Sincronizaciones configuradas:${NC}"
+        for i in "${!scripts[@]}"; do
+            script="${scripts[$i]}"
+            job=$(nc_sync_get_tag "$script")
+            source=$(sed -n "s/^SOURCE='\\(.*\\)'/\\1/p" "$script" | head -n1)
+            dest=$(sed -n "s/^DEST='\\(.*\\)'/\\1/p" "$script" | head -n1)
+            ncuser=$(sed -n "s/^NCUSER='\\(.*\\)'/\\1/p" "$script" | head -n1)
+            cron_line=$(nc_sync_cron_line "$job")
+            if [[ -n "$cron_line" ]]; then
+                state="${GREEN}ACTIVA${NC}"
+                freq=$(echo "$cron_line" | awk '{print $1,$2,$3,$4,$5}')
+            else
+                state="${YELLOW}MANUAL/DESACTIVADA${NC}"
+                freq="manual"
+            fi
+            if grep -q 'rclone bisync' "$script"; then
+                mode="BIDIRECCIONAL"
+            elif grep -q 'rclone sync "\$SOURCE" "\$DEST"' "$script"; then
+                mode="CPG → LLANCOR"
+            else
+                mode="LLANCOR → CPG"
+            fi
+            echo -e "$((i+1))) $job [$state]"
+            echo "   Modo       : $mode"
+            echo "   Remoto     : ${source:-?}"
+            echo "   Nextcloud  : ${ncuser:-?}/files/$(basename "${dest:-?}")"
+            echo "   Frecuencia : $freq"
+        done
+        echo "0) Volver"
+        echo
+        read -rp "Seleccione sincronización: " sel
+        [[ "$sel" == "0" ]] && return
+        [[ "$sel" =~ ^[0-9]+$ ]] && ((sel>=1 && sel<=${#scripts[@]})) || { echo "Opción inválida"; sleep 1; continue; }
+
+        script="${scripts[$((sel-1))]}"
+        job=$(nc_sync_get_tag "$script")
+        source=$(sed -n "s/^SOURCE='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        dest=$(sed -n "s/^DEST='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        ncuser=$(sed -n "s/^NCUSER='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        log=$(sed -n "s/^LOG='\\(.*\\)'/\\1/p" "$script" | head -n1)
+
+        while true; do
+            cron_line=$(nc_sync_cron_line "$job")
+            clear
+            echo -e "${CYAN}=== $job ===${NC}"
+            echo "Remoto    : ${source:-?}"
+            echo "Destino   : ${dest:-?}"
+            echo "Automático: $([[ -n "$cron_line" ]] && echo ACTIVO || echo DESACTIVADO)"
+            echo
+            echo "1) Ejecutar sincronización ahora"
+            echo "2) Activar / desactivar automático"
+            echo "3) Cambiar frecuencia"
+            echo "4) Ver log"
+            echo "5) Quitar sincronización"
+            echo "0) Volver"
+            read -rp "Opción: " choice
+
+            case "$choice" in
+                1)
+                    echo -e "${CYAN}Ejecutando $script ...${NC}"
+                    "$script"; rc=$?
+                    if [[ $rc -eq 0 ]]; then
+                        echo -e "${GREEN}✔ Sincronización terminada correctamente${NC}"
+                    else
+                        echo -e "${RED}✘ Sincronización terminó con código $rc${NC}"
+                        [[ -n "$log" ]] && echo "Log: $log"
+                    fi
+                    nc_remote_pause
+                    ;;
+                2)
+                    if [[ -n "$cron_line" ]]; then
+                        nc_sync_set_cron "$job" "$script" ""
+                        echo -e "${GREEN}✔ Sincronización automática desactivada.${NC}"
+                        echo "El script y los archivos permanecen intactos."
+                    else
+                        echo "Seleccione frecuencia para activarla:"
+                        expr=$(nc_sync_pick_frequency) || { echo "Opción inválida"; nc_remote_pause; continue; }
+                        if [[ -z "$expr" ]]; then
+                            echo -e "${YELLOW}Se mantiene en modo manual.${NC}"
+                        else
+                            nc_sync_set_cron "$job" "$script" "$expr"
+                            echo -e "${GREEN}✔ Sincronización automática activada: $expr${NC}"
+                        fi
+                    fi
+                    nc_remote_pause
+                    ;;
+                3)
+                    echo "Nueva frecuencia:"
+                    expr=$(nc_sync_pick_frequency) || { echo "Opción inválida"; nc_remote_pause; continue; }
+                    nc_sync_set_cron "$job" "$script" "$expr"
+                    [[ -n "$expr" ]] && echo -e "${GREEN}✔ Frecuencia actualizada: $expr${NC}" || echo -e "${GREEN}✔ Automático desactivado; queda disponible manualmente.${NC}"
+                    nc_remote_pause
+                    ;;
+                4)
+                    echo -e "${CYAN}=== LOG ===${NC}"
+                    [[ -n "$log" && -f "$log" ]] && tail -n 80 "$log" || echo "No hay log disponible todavía."
+                    nc_remote_pause
+                    ;;
+                5)
+                    echo -e "${YELLOW}Quitar sincronización:${NC}"
+                    echo "1) Quitar tarea y configuración (NO borrar archivos locales)"
+                    echo "2) Quitar todo y BORRAR también la carpeta local de LLANCOR"
+                    echo "0) Cancelar"
+                    read -rp "Seleccione: " ans
+                    case "$ans" in
+                        1)
+                            read -rp "¿Confirmar quitar sincronización '$job'? (s/n): " ok
+                            [[ "$ok" =~ ^[sS]$ ]] || continue
+                            nc_sync_set_cron "$job" "$script" ""
+                            rm -f -- "$script"
+                            rm -f -- "/etc/nextcloud-remote-sync/rclone-${job}.conf"
+                            echo -e "${GREEN}✔ Sincronización eliminada. Los archivos locales se conservaron.${NC}"
+                            [[ -n "$dest" ]] && echo "Carpeta conservada: $dest"
+                            nc_remote_pause
+                            break
+                            ;;
+                        2)
+                            echo -e "${RED}⚠ Esto borrará la carpeta LOCAL de LLANCOR:${NC}"
+                            echo "${dest:-DESCONOCIDO}"
+                            echo "No elimina directamente la carpeta WebDAV en CPG."
+                            read -rp "Escriba BORRAR para confirmar: " ok
+                            [[ "$ok" == "BORRAR" ]] || { echo "Cancelado"; nc_remote_pause; continue; }
+                            nc_sync_set_cron "$job" "$script" ""
+                            rm -f -- "$script"
+                            rm -f -- "/etc/nextcloud-remote-sync/rclone-${job}.conf"
+                            if [[ -n "$dest" && -n "$NC_DATA_DIR" && "$dest" == "$NC_DATA_DIR"/*/files/* && -d "$dest" ]]; then
+                                rm -rf --one-file-system -- "$dest"
+                                if [[ -n "$ncuser" && -n "$NC_APP_DIR" ]]; then
+                                    sudo -u www-data php "$NC_APP_DIR/occ" files:scan --path="$ncuser/files" >/dev/null 2>&1 || true
+                                fi
+                                echo -e "${GREEN}✔ Sincronización y carpeta local eliminadas.${NC}"
+                            else
+                                echo -e "${YELLOW}Sincronización eliminada, pero la carpeta local no se borró por seguridad.${NC}"
+                            fi
+                            nc_remote_pause
+                            break
+                            ;;
+                        0) ;;
+                        *) echo "Opción inválida"; nc_remote_pause ;;
+                    esac
+                    ;;
+                0) break ;;
+                *) echo "Opción inválida"; sleep 1 ;;
+            esac
+        done
+    done
+}
+
+menu_webdav_pro(){
+    while true; do
+        clear
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}      NEXTCLOUD REMOTO / WEBDAV${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+        echo -e "${YELLOW}1)${NC} Conectar carpeta de otro Nextcloud"
+        echo -e "${YELLOW}2)${NC} Ver carpetas conectadas"
+        echo -e "${YELLOW}3)${NC} Probar conexión"
+        echo -e "${YELLOW}4)${NC} Desconectar carpeta"
+        echo -e "${YELLOW}5)${NC} Contraseñas API - TOKEN (Crear/Borrar/Listar)"
+        echo -e "${YELLOW}6)${NC} Sincronizar carpeta remota con usuario Nextcloud"
+        echo -e "${YELLOW}7)${NC} Gestionar / quitar sincronización"
+        echo
         echo -e "${CYAN}0)${NC} Volver"
         echo
-
-        read -p "Selecciona: " OPC
-
-        CRON_LIST=$(crontab -l 2>/dev/null)
-
-        case $OPC in
-
-        # ================= AGREGAR =================
-        1)
-            echo
-            read -p "Etiqueta: " TAG
-            read -p "Comando: " CMD
-
-            if [[ -z "$CMD" ]]; then
-                echo -e "${RED}✘ Comando vacío${NC}"
-                pausar
-                continue
-            fi
-
-            echo
-            echo "Modo:"
-            echo "1) Cada 5 min"
-            echo "2) Cada hora"
-            echo "3) Diario"
-            echo "4) Manual"
-            read -p "Selecciona: " MODO
-
-            case $MODO in
-                1) CRON_EXPR="*/5 * * * *" ;;
-                2) CRON_EXPR="0 * * * *" ;;
-                3)
-                    read -p "Hora (0-23): " H
-                    read -p "Minuto (0-59): " M
-                    CRON_EXPR="$M $H * * *"
-                ;;
-                4)
-                    read -p "Expresión cron: " CRON_EXPR
-                ;;
-                *) echo -e "${RED}Opción inválida${NC}"; pausar; continue ;;
-            esac
-
-            if ! validar_cron "$CRON_EXPR"; then
-                echo -e "${RED}✘ Cron inválido${NC}"
-                pausar
-                continue
-            fi
-
-            NUEVA="$CRON_EXPR $CMD #$TAG"
-
-            if echo "$CRON_LIST" | grep -Fxq "$NUEVA"; then
-                echo -e "${YELLOW}⚠ Ya existe${NC}"
-            else
-                (crontab -l 2>/dev/null; echo "$NUEVA") | crontab -
-                echo "$(date) + $NUEVA" >> "$HISTORIAL"
-                echo -e "${GREEN}✔ Tarea agregada${NC}"
-            fi
-
-            pausar
-        ;;
-
-        # ================= LISTAR =================
-        2)
-            echo -e "${CYAN}=== LISTA DE TAREAS ===${NC}"
-            echo
-
-            if [[ -z "$CRON_LIST" ]]; then
-                echo -e "${YELLOW}No hay tareas${NC}"
-            else
-                echo "$CRON_LIST" | nl | sed 's/#OFF/🔴 OFF/g'
-                echo
-                echo -e "Estado: ${GREEN}Activo${NC} | 🔴 OFF"
-            fi
-
-            pausar
-        ;;
-
-        # ================= EDITAR =================
-        3)
-            if [[ -z "$CRON_LIST" ]]; then
-                echo -e "${YELLOW}No hay tareas${NC}"
-                pausar
-                continue
-            fi
-
-            echo "$CRON_LIST" | nl
-            echo
-            read -p "Número: " NUM
-
-            if [[ -z "$NUM" ]] || ! validar_numero "$NUM"; then
-                echo -e "${RED}✘ Número inválido${NC}"
-                pausar
-                continue
-            fi
-
-            LINEA=$(echo "$CRON_LIST" | sed -n "${NUM}p")
-
-            if [[ -z "$LINEA" ]]; then
-                echo -e "${RED}✘ No existe esa línea${NC}"
-                pausar
-                continue
-            fi
-
-            CRON_ACTUAL=$(echo "$LINEA" | awk '{print $1,$2,$3,$4,$5}')
-            CMD_ACTUAL=$(echo "$LINEA" | cut -d' ' -f6-)
-
-            echo -e "${CYAN}Actual:${NC} $LINEA"
-            echo
-            echo "1) Solo horario"
-            echo "2) Solo comando"
-            echo "3) Ambos"
-            read -p "Opción: " OPC2
-
-            NUEVO_CRON="$CRON_ACTUAL"
-            NUEVO_CMD="$CMD_ACTUAL"
-
-            [[ "$OPC2" == "1" || "$OPC2" == "3" ]] && read -p "Nuevo cron: " NUEVO_CRON
-            [[ "$OPC2" == "2" || "$OPC2" == "3" ]] && read -p "Nuevo comando: " NUEVO_CMD
-
-            if ! validar_cron "$NUEVO_CRON"; then
-                echo -e "${RED}✘ Cron inválido${NC}"
-                pausar
-                continue
-            fi
-
-            TMP=$(mktemp)
-            echo "$CRON_LIST" | sed "${NUM}s|.*|$NUEVO_CRON $NUEVO_CMD|" > "$TMP"
-            crontab "$TMP"
-            rm "$TMP"
-
-            echo "$(date) ~ EDIT $LINEA -> $NUEVO_CRON $NUEVO_CMD" >> "$HISTORIAL"
-
-            echo -e "${GREEN}✔ Editado correctamente${NC}"
-            pausar
-        ;;
-
-        # ================= ELIMINAR =================
-        4)
-            if [[ -z "$CRON_LIST" ]]; then
-                echo -e "${YELLOW}No hay tareas para eliminar${NC}"
-                pausar
-                continue
-            fi
-
-            echo "$CRON_LIST" | nl
-            echo
-            read -p "Número a eliminar: " NUM
-
-            if [[ -z "$NUM" ]] || ! validar_numero "$NUM"; then
-                echo -e "${RED}✘ Número inválido${NC}"
-                pausar
-                continue
-            fi
-
-            LINEA=$(echo "$CRON_LIST" | sed -n "${NUM}p")
-
-            if [[ -z "$LINEA" ]]; then
-                echo -e "${RED}✘ Línea no existe${NC}"
-                pausar
-                continue
-            fi
-
-            echo
-            echo -e "${YELLOW}Vas a eliminar:${NC}"
-            echo "$LINEA"
-            echo
-            read -p "¿Confirmar? (s/n): " CONFIRM
-
-            if [[ ! "$CONFIRM" =~ ^[sS]$ ]]; then
-                echo -e "${CYAN}Cancelado${NC}"
-                pausar
-                continue
-            fi
-
-            crontab -l 2>/dev/null | sed "${NUM}d" | crontab -
-
-            echo "$(date) - $LINEA" >> "$HISTORIAL"
-
-            echo -e "${GREEN}✔ Eliminado correctamente${NC}"
-            pausar
-        ;;
-
-        # ================= ON/OFF =================
-        5)
-            if [[ -z "$CRON_LIST" ]]; then
-                echo -e "${YELLOW}No hay tareas${NC}"
-                pausar
-                continue
-            fi
-
-            echo "$CRON_LIST" | nl
-            read -p "Número: " NUM
-
-            if [[ -z "$NUM" ]] || ! validar_numero "$NUM"; then
-                echo -e "${RED}✘ Número inválido${NC}"
-                pausar
-                continue
-            fi
-
-            LINEA=$(echo "$CRON_LIST" | sed -n "${NUM}p")
-
-            if [[ -z "$LINEA" ]]; then
-                echo -e "${RED}✘ Línea no existe${NC}"
-                pausar
-                continue
-            fi
-
-            if echo "$LINEA" | grep -q "#OFF"; then
-                NUEVA=$(echo "$LINEA" | sed 's/#OFF//')
-                ESTADO="ACTIVADO"
-            else
-                NUEVA="$LINEA #OFF"
-                ESTADO="DESACTIVADO"
-            fi
-
-            TMP=$(mktemp)
-            echo "$CRON_LIST" | sed "${NUM}s|.*|$NUEVA|" > "$TMP"
-            crontab "$TMP"
-            rm "$TMP"
-
-            echo "$(date) * $ESTADO $LINEA" >> "$HISTORIAL"
-
-            echo -e "${GREEN}✔ Tarea $ESTADO${NC}"
-            pausar
-        ;;
-
-        # ================= HISTORIAL =================
-        6)
-            echo -e "${CYAN}=== HISTORIAL ===${NC}"
-            echo
-            cat "$HISTORIAL" 2>/dev/null || echo "Vacío"
-            echo
-            pausar
-        ;;
-		
-        # ================= NANO =================
-        7)
-            echo -e "${CYAN}Abriendo crontab en nano...${NC}"
-            sleep 1
-
-            EDITOR=nano crontab -e < /dev/tty > /dev/tty 2>&1
-			
-            echo
-            echo -e "${GREEN}✔ Editor cerrado${NC}"
-            echo "Recuerda: guarda con CTRL+O y sal con CTRL+X"
-
-            pausar
-        ;;
-        0) break ;;
-
-        *) echo -e "${RED}Opción inválida${NC}"; sleep 1 ;;
-
+        read -rp "Opción: " op
+        case "$op" in
+            1) conectar_nextcloud_remoto ;;
+            2) listar_nextcloud_remotos ;;
+            3) probar_nextcloud_remoto ;;
+            4) desconectar_nextcloud_remoto ;;
+            5) menu_tokens_api ;;
+            6) sincronizar_remoto_usuario_nextcloud ;;
+            7) gestionar_sincronizaciones_nextcloud ;;
+            0) break ;;
+            *) echo -e "${RED}Opción inválida${NC}"; sleep 1 ;;
         esac
     done
-}
-
-# =======================================================
-# MONTAR WEBDAV TEMPORAL
-# =======================================================
-
-montar_webdav_temporal() {
-
-    instalar_si_falta davfs2 || return
-
-    echo -ne "${CYAN}URL WebDAV Eje: ${YELLOW}https://mi.server/remote.php/dav/files/user${NC}: "
-    read URL
-    read -p "Usuario: " USER
-    read -s -p "Contraseña: " PASS
-    echo
-    read -p "Ruta local Eje: /mnt/webdav/servidor: " RUTA
-
-    mkdir -p "$RUTA"
-
-    # 🔍 Verificar si ya está montado
-    if mount | grep -q "on $RUTA "; then
-        echo -e "${YELLOW}⚠ Ya está montado en $RUTA${NC}"
-        read -p "ENTER..."
-        return
-    fi
-
-    # 🔐 Validar credenciales (si tienes función)
-    if type validar_webdav >/dev/null 2>&1; then
-        if ! validar_webdav "$URL" "$USER" "$PASS"; then
-            echo -e "${RED}✖ Credenciales incorrectas${NC}"
-            read -p "ENTER..."
-            return
-        else
-            echo -e "${GREEN}✔ Credenciales válidas${NC}"
-        fi
-    fi
-
-    # 🔑 Guardar credenciales
-    sed -i "\|$URL|d" /etc/davfs2/secrets 2>/dev/null
-    echo "$URL $USER $PASS" >> /etc/davfs2/secrets
-    chmod 600 /etc/davfs2/secrets
-
-    # 🚀 Montar
-    if mount -t davfs "$URL" "$RUTA"; then
-        echo -e "${GREEN}✔ WebDAV montado correctamente en $RUTA${NC}"
-        log_action "WebDAV montado: $URL -> $RUTA"
-    else
-        echo -e "${RED}✖ Error montando WebDAV${NC}"
-    fi
-
-    read -p "ENTER..."
-}
-
-# =======================================================
-# WEBDAV PRO (fstab + systemd + permisos Nextcloud)
-# =======================================================
-
-montar_webdav_permanente() {
-
-    instalar_si_falta davfs2 || return
-
-    # ===== COLORES =====
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-
-    pausar() { read -p "ENTER para continuar..."; }
-
-    while true; do
-        clear
-        echo -e "${CYAN}========== WEBDAV PRO ==========${NC}"
-        echo -e "${YELLOW}1)${NC} Listar WebDAV montados"
-        echo -e "${YELLOW}2)${NC} Hacer permanente (fstab / service / ambos)"
-        echo -e "${YELLOW}3)${NC} Desmontar / eliminar todo"
-        echo -e "${YELLOW}0)${NC} Volver"
-        read -p "Selecciona opción: " OPCION
-
-        case "$OPCION" in
-
-        1)
-            mapfile -t MONTES < <(mount | grep davfs | awk '{print $3}')
-            if [ ${#MONTES[@]} -eq 0 ]; then
-                echo -e "${RED}No hay WebDAV montados${NC}"
-            else
-                echo -e "${GREEN}Montajes activos:${NC}"
-                for i in "${!MONTES[@]}"; do
-                    echo -e "${YELLOW}$((i+1)))${NC} ${MONTES[$i]}"
-                done
-            fi
-            pausar
-        ;;
-
-        2)
-            mapfile -t MONTES < <(mount | grep davfs | awk '{print $3}')
-            if [ ${#MONTES[@]} -eq 0 ]; then
-                echo -e "${RED}No hay WebDAV montados${NC}"
-                pausar
-                continue
-            fi
-
-            echo -e "${CYAN}Selecciona montaje:${NC}"
-            for i in "${!MONTES[@]}"; do
-                echo -e "${YELLOW}$((i+1)))${NC} ${MONTES[$i]}"
-            done
-
-            read -p "Opción: " NUM
-            [[ -z "$NUM" ]] && continue
-
-            LOCAL_PATH="${MONTES[$((NUM-1))]}"
-
-            read -p $'\e[1;33mURL WebDAV (ej: https://server/remote.php/dav/files/user): \e[0m' WEBDAV_URL
-            read -p "Usuario: " USUARIO
-            read -s -p "Contraseña: " PASSWORD
-            echo
-
-            # ===== Usuario Nextcloud =====
-            read -p "Usuario sistema (ej: www-data): " NC_USER
-            [[ -z "$NC_USER" ]] && NC_USER="www-data"
-
-            NC_UID=$(id -u $NC_USER 2>/dev/null)
-            NC_GID=$(id -g $NC_USER 2>/dev/null)
-
-            if [[ -z "$NC_UID" || -z "$NC_GID" ]]; then
-                echo -e "${RED}Usuario inválido${NC}"
-                pausar
-                continue
-            fi
-
-            # ===== Guardar credenciales =====
-            CRED_LINE="$WEBDAV_URL $USUARIO $PASSWORD"
-            if grep -q "^$WEBDAV_URL" /etc/davfs2/secrets 2>/dev/null; then
-                sudo sed -i "s|^$WEBDAV_URL.*|$CRED_LINE|" /etc/davfs2/secrets
-            else
-                echo "$CRED_LINE" | sudo tee -a /etc/davfs2/secrets > /dev/null
-            fi
-            sudo chmod 600 /etc/davfs2/secrets
-
-            # ===== Opciones =====
-            echo
-            echo "Opciones:"
-            echo -e "${YELLOW}1)${NC} fstab"
-            echo -e "${YELLOW}2)${NC} systemd"
-            echo -e "${YELLOW}3)${NC} ambos"
-            echo -e "${YELLOW}0)${NC} cancelar"
-            read -p "Selecciona: " PERM
-
-            # ===== FSTAB =====
-            if [[ "$PERM" == "1" || "$PERM" == "3" ]]; then
-                FSTAB_LINE="$WEBDAV_URL $LOCAL_PATH davfs _netdev,rw,user,nofail,uid=$NC_UID,gid=$NC_GID,umask=002 0 0"
-
-                if grep -q " $LOCAL_PATH " /etc/fstab; then
-                    sudo sed -i "s|.* $LOCAL_PATH .*|$FSTAB_LINE|" /etc/fstab
-                    echo -e "${GREEN}✔ fstab actualizado${NC}"
-                else
-                    echo "$FSTAB_LINE" | sudo tee -a /etc/fstab > /dev/null
-                    echo -e "${GREEN}✔ agregado a fstab${NC}"
-                fi
-            fi
-
-            # ===== SYSTEMD =====
-            if [[ "$PERM" == "2" || "$PERM" == "3" ]]; then
-                SERVICE_NAME="webdav-$(basename $LOCAL_PATH).service"
-                SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
-
-                sudo tee "$SERVICE_FILE" > /dev/null <<EOF
-[Unit]
-Description=WebDAV $LOCAL_PATH
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=$NC_USER
-Group=$NC_USER
-ExecStart=/usr/bin/mount.davfs $WEBDAV_URL $LOCAL_PATH
-ExecStop=/bin/umount $LOCAL_PATH
-Restart=on-failure
-RestartSec=15
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-                sudo systemctl daemon-reload
-                sudo systemctl enable "$SERVICE_NAME"
-                sudo systemctl start "$SERVICE_NAME"
-
-                echo -e "${GREEN}✔ service creado: $SERVICE_NAME${NC}"
-            fi
-
-            echo -e "${GREEN}✔ Configuración permanente lista${NC}"
-            pausar
-        ;;
-
-        3)
-            mapfile -t MONTES < <(mount | grep davfs | awk '{print $3}')
-            mapfile -t SERVICES < <(systemctl list-unit-files | grep webdav | awk '{print $1}')
-
-            echo -e "${CYAN}Selecciona:${NC}"
-            INDEX=1
-            declare -A MAP
-
-            for M in "${MONTES[@]}"; do
-                echo -e "${YELLOW}$INDEX)${NC} Montaje: $M"
-                MAP[$INDEX]="mnt:$M"
-                ((INDEX++))
-            done
-
-            for S in "${SERVICES[@]}"; do
-                echo -e "${YELLOW}$INDEX)${NC} Service: $S"
-                MAP[$INDEX]="srv:$S"
-                ((INDEX++))
-            done
-
-            read -p "Opción: " SEL
-            ITEM="${MAP[$SEL]}"
-            TYPE="${ITEM%%:*}"
-            NAME="${ITEM#*:}"
-
-            # ===== ELIMINAR FSTAB =====
-            if [[ "$TYPE" == "mnt" ]]; then
-
-                LINEA=$(awk -v mnt="$NAME" '$2 == mnt {print $0}' /etc/fstab)
-
-                if [ -z "$LINEA" ]; then
-                    echo -e "${RED}No encontrado en fstab${NC}"
-                    pausar
-                    continue
-                fi
-
-                echo -e "${YELLOW}$LINEA${NC}"
-                read -p "Confirmar (s/n): " CONF
-                [[ ! "$CONF" =~ ^[sS]$ ]] && continue
-
-                WEBDAV_URL=$(echo "$LINEA" | awk '{print $1}')
-
-                sudo umount "$NAME" 2>/dev/null || sudo umount -l "$NAME"
-
-                sudo cp /etc/fstab /etc/fstab.bak.$(date +%F_%T)
-
-                sudo grep -vF -- "$LINEA" /etc/fstab | sudo tee /etc/fstab > /dev/null
-
-                sudo grep -vF -- "$WEBDAV_URL" /etc/davfs2/secrets | sudo tee /etc/davfs2/secrets > /dev/null
-
-                echo -e "${GREEN}✔ eliminado completamente${NC}"
-            fi
-
-            # ===== ELIMINAR SERVICE =====
-            if [[ "$TYPE" == "srv" ]]; then
-                sudo systemctl stop "$NAME"
-                sudo systemctl disable "$NAME"
-                sudo rm -f "/etc/systemd/system/$NAME"
-                sudo systemctl daemon-reload
-                echo -e "${GREEN}✔ service eliminado${NC}"
-            fi
-
-            pausar
-        ;;
-
-        0) break ;;
-        *) echo -e "${RED}Opción inválida${NC}"; pausar ;;
-
-        esac
-    done
-}
- 
-# =======================================================
-# DESMONTAR WEBDAV
-# =======================================================
-desmontar_webdav() {
-
-    mapfile -t MONTES < <(mount | grep davfs | awk '{print $3}')
-
-    # 🔴 Si no hay montajes
-    if [ ${#MONTES[@]} -eq 0 ]; then
-        echo "No hay WebDAV montados"
-        read -p "Presiona ENTER para continuar..."
-        return
-    fi
-
-    echo -e "${CYAN}Montajes WebDAV activos:${NC}"
-    for i in "${!MONTES[@]}"; do
-        echo "$((i+1))) ${MONTES[$i]}"
-    done
-
-    echo
-    read -p "Selecciona (ENTER para cancelar): " NUM
-
-    # 🔴 Cancelar
-    if [ -z "$NUM" ]; then
-        echo "Cancelado"
-        read -p "Presiona ENTER para continuar..."
-        return
-    fi
-
-    # 🔴 Validar número
-    if ! [[ "$NUM" =~ ^[0-9]+$ ]] || [ "$NUM" -lt 1 ] || [ "$NUM" -gt ${#MONTES[@]} ]; then
-        echo "Opción inválida"
-        read -p "Presiona ENTER para continuar..."
-        return
-    fi
-
-    RUTA="${MONTES[$((NUM-1))]}"
-
-    # 🔴 Confirmación
-    read -p "¿Seguro que deseas desmontar '$RUTA'? (s/n): " CONF
-    [[ "$CONF" =~ ^[sS]$ ]] || {
-        echo "Cancelado"
-        read -p "Presiona ENTER para continuar..."
-        return
-    }
-
-    umount "$RUTA" 2>/dev/null || umount -l "$RUTA"
-
-    log_action "Desmontado WebDAV $RUTA"
-    echo -e "${GREEN}✔ Desmontado $RUTA${NC}"
-
-    read -p "Presiona ENTER para continuar..."
-}
-# =======================================================
-# BACKUP WEBDAV INTERACTIVO MEJORADO
-# =======================================================
-# PROGRAMAR CRON
-# =======================================================
-programar_cron() {
-
-    echo
-    echo -e "${CYAN}Frecuencia:${NC}"
-    echo "1) Cada 5 minutos"
-    echo "2) Cada 1 hora"
-    echo "3) Diario (03:00)"
-    echo "4) Semanal (domingo 03:00)"
-    echo "5) Personalizado"
-
-    read -p "Opción: " FREQ < /dev/tty
-
-    case "$FREQ" in
-        1) CRON="*/5 * * * *"; DESC="Cada 5 minutos" ;;
-        2) CRON="0 * * * *"; DESC="Cada 1 hora" ;;
-        3) CRON="0 3 * * *"; DESC="Todos los días a las 03:00" ;;
-        4) CRON="0 3 * * 0"; DESC="Domingos a las 03:00" ;;
-        5)
-            echo
-            echo "Formato: MIN HORA DIA MES DIA_SEMANA"
-            echo "Ejemplo: 0 2 * * *"
-            read -p "Cron: " CRON < /dev/tty
-            DESC="Personalizado ($CRON)"
-            ;;
-        *)
-            echo "Opción inválida"
-            return
-            ;;
-    esac
-
-    (crontab -l 2>/dev/null | grep -v -F "$CMD"; echo "$CRON $CMD") | crontab -
-
-    echo
-    echo -e "${GREEN}✔ Backup programado${NC}"
-    echo "Frecuencia: $DESC"
-}
-
-# =======================================================
-# PROGRAMAR COPIA INTERACTIVA CRON
-# =======================================================
-backup_interactivo() {
-
-    echo -e "${CYAN}=== COPIA DE DATOS ===${NC}"
-
-    echo
-    echo "Ejemplos:"
-    echo "WebDAV montado: /mnt/webdav/server"
-    echo "Local: /mnt/sdb1/backup"
-    echo
-
-    # -------- ORIGEN --------
-    read -p "Ruta ORIGEN: " ORIGEN < /dev/tty
-
-    # -------- DESTINO --------
-    read -p "Ruta DESTINO: " DESTINO < /dev/tty
-
-    if [ -z "$ORIGEN" ] || [ -z "$DESTINO" ]; then
-        echo "Datos inválidos"
-        read -p "ENTER para continuar..." < /dev/tty
-        return
-    fi
-
-    # -------- MÉTODO --------
-    echo
-    echo "Método:"
-    echo "1) rsync (recomendado) Repara Permisos"
-    echo "2) rclone (pro)"
-    echo "3) cp (básico) Repara Permisos "
-    read -p "Opción: " METODO < /dev/tty
-
-    # -------- SYNC --------
-    echo
-    read -p "¿Modo espejo (sync)? (s/n): " SYNC < /dev/tty
-
-    # ⚠️ ALERTA
-    if [[ "$SYNC" =~ ^[sS]$ ]]; then
-        echo
-        echo -e "${RED}⚠️ ATENCIÓN:${NC} Esto puede borrar archivos en el DESTINO"
-        read -p "¿Continuar? (s/n): " CONFIRM < /dev/tty
-        [[ ! "$CONFIRM" =~ ^[sS]$ ]] && echo "Cancelado" && return
-    fi
-
-    # -------- USUARIO NEXTCLOUD --------
-    read -p "Grupo Nextcloud (ej: www-data) para permisos: " NC_USER
-    [[ -z "$NC_USER" ]] && NC_USER="www-data"
-
-    # -------- COMANDO --------
-    case "$METODO" in
-        1)
-            CMD="rsync -avh --chown=$NC_USER:$NC_USER"
-            [[ "$SYNC" =~ ^[sS]$ ]] && CMD="$CMD --delete"
-            CMD="$CMD \"$ORIGEN\" \"$DESTINO\""
-            ;;
-        2)
-            if [[ "$SYNC" =~ ^[sS]$ ]]; then
-                CMD="rclone sync \"$ORIGEN\" \"$DESTINO\" --progress"
-            else
-                CMD="rclone copy \"$ORIGEN\" \"$DESTINO\" --progress"
-            fi
-            ;;
-        3)
-            CMD="cp -r \"$ORIGEN\" \"$DESTINO\""
-            ;;
-        *)
-            echo "Opción inválida"; return ;;
-    esac
-
-    # -------- RESUMEN --------
-    echo
-    echo -e "${CYAN}Resumen:${NC}"
-    echo "Origen : $ORIGEN"
-    echo "Destino: $DESTINO"
-    echo "Comando: $CMD"
-    echo "Permisos para usuario Nextcloud: $NC_USER"
-
-    # -------- EJECUTAR --------
-    echo
-    read -p "¿Ejecutar ahora? (s/n): " RUN < /dev/tty
-    if [[ "$RUN" =~ ^[sS]$ ]]; then
-        eval "$CMD"
-        # Ajustar permisos después de copiar
-        echo -e "${CYAN}Ajustando permisos para Nextcloud...${NC}"
-        sudo chown -R "$NC_USER":"$NC_USER" "$DESTINO"
-        sudo find "$DESTINO" -type d -exec chmod 750 {} \;
-        sudo find "$DESTINO" -type f -exec chmod 640 {} \;
-        echo -e "${GREEN}✔ Permisos ajustados${NC}"
-    fi
-
-    # -------- CRON --------
-    read -p "¿Programar automático? (s/n): " AUTO < /dev/tty
-    if [[ "$AUTO" =~ ^[sS]$ ]]; then
-        programar_cron
-    fi
-
-    log_action "Copia: $CMD"
-
-    echo
-    read -p "ENTER para continuar..." < /dev/tty
-}
-
-# =======================================================
-# LISTAR WEBDAV MONTADOS
-# =======================================================
-listar_webdav_montados() {
-
-    mapfile -t MONTES < <(mount | grep davfs | awk '{print $3}')
-
-    if [ ${#MONTES[@]} -eq 0 ]; then
-        echo -e "${RED}No hay WebDAV montados${NC}"
-        read -p "Presiona ENTER para continuar..."
-        return 1
-    fi
-
-    echo -e "${CYAN}WebDAV montados actualmente:${NC}"
-    for i in "${!MONTES[@]}"; do
-        echo "$((i+1))) ${MONTES[$i]}"
-    done
-
-    echo
-    read -p "Presiona ENTER para continuar..."
-}
-
-# =======================================================
-# VER LOG
-# =======================================================
-ver_logs() {
-    echo -e "${CYAN}=== LOGS ===${NC}"
-    tail -n 50 "$LOG_FILE"
-    read -p "ENTER..."
-}
-
-# =======================================================
-# MENU PRINCIPAL
-# =======================================================
-
-menu_webdav_pro() {
-
-while true; do
-    clear
-    echo -e "${CYAN}=== Configurar Rclone/Webdav / Backup Local Server ===${NC}"
-    echo -e "${YELLOW}1)${NC} Configurar remoto Rclone/WebDav Interactivo"
-    echo -e "${YELLOW}2)${NC} Montar Remoto Configurado Permanete/Temporal"
-	echo
-    echo -e "${YELLOW}3)${NC} Listar Archivos Remoto / Configurado"
-    echo -e "${YELLOW}4)${NC} Copy/Sync Al Mismo Server Remoto + (Crontab)"
-    echo -e "${YELLOW}5)${NC} Borrar Configuración Remota / Rclone/WebDav"
-    echo
-    echo -e "${CYAN}=====  Montar/Desmontar WebDAV / Backup External Server =====${NC}"
-    echo -e "${YELLOW}6)${NC} Montar WebDAV Temporal / Se Desmonta al Reinicio"
-	echo -e "${YELLOW}7)${NC} Desmontar WebDAV Temporal"
-	echo
-    echo -e "${CYAN}=====   WebDAV Permanente  (Fstab - systemd Service) Inicio Seguro =====${NC}"
-	echo -e "${YELLOW}8)${NC} Hacer Permanente WebDAV Montado / No Desmonta al Reinicio"
-	echo
-    echo -e "${CYAN}=====  Programar Backup WebDAV (Copy/Sync) + (Crontab) =====${NC}"
-    echo -e "${YELLOW}9)${NC} Programar Backup WebDAV (Copy/Sync) + (Crontab)"
-    echo -e "${YELLOW}10)${NC} Gestionar CRON (Crear/borrar/editar)"
-	echo -e "${YELLOW}11)${NC} Listar WebDAV Montados "
-	echo -e "${YELLOW}12)${NC} Gestionar Fstab HDD (Agregar/Borrar/Listar)"
-	echo -e "${YELLOW}13)${NC} Contraseñas API - TOKEN (Crear/Borrar/Listar)"
-    echo -e "${YELLOW}14)${NC} Ver logs"
-
-    echo -e "${CYAN}0) Volver${NC}"
-
-    read -p "Opción: " op
-
-    case $op in
-        1) configurar_remoto_inteligente ;;
-        2) montar_remoto ;;
-        3) listar_archivos_remoto ;;
-        4) rclone_copy ;;
-        5) borrar_config_remota ;;
-        6) montar_webdav_temporal ;;
-		7) desmontar_webdav ;;
-		8) montar_webdav_permanente ;;
-        9) backup_interactivo ;;
-        10) gestionar_editar_cron ;;
-		11) listar_webdav_montados ;;
-		12) gestionar_fstab_nct ;;
-		13) menu_tokens_api ;;
-        14) ver_logs ;;
-        0) break ;;
-    esac
-done
-
 }
 
 # ========= GESTIÓN DISCO /PERMISOS/ARCHIVOS/ FSTAB/NEXTCLOUD =========
@@ -13525,13 +13014,13 @@ echo -e "${YELLOW}4)${NC} Borrar carpeta de Nextcloud"
 echo -e "${YELLOW}5)${NC} Escanear Carpeta de Nextcloud + Permisos Nextcloud/Jellyfin"
 echo -e "${YELLOW}6)${NC} Reparar permisos Nextcloud + Agrega Jellyfin a www-data"
 echo -e "${YELLOW}7)${NC} Dependencias para Formatear/Permisos ALC"
-echo -e "${YELLOW}8)${NC} Formatear/Montar HDD/USB + Fstab + Permisos ACL/Genérico"
+echo -e "${YELLOW}8)${YELLOW} Formatear/Montar HDD/USB + Fstab + Permisos ACL/Genérico${NC}"
 echo -e "${YELLOW}9)${NC} Desmontar y limpiar Fstab"
 echo -e "${YELLOW}10)${NC} Instalar soporte exFAT/NTFS/FAT32 para montar"
-echo -e "${YELLOW}11)${NC} Montar USB/HDD sin formatear + Fstab"
+echo -e "${YELLOW}11)${CYAN} Montar USB/HDD sin formatear + Fstab${NC}"
 echo -e "${YELLOW}12)${NC} Ver discos montados"
 echo -e "${YELLOW}13)${NC} Gestionar Fstab HDD (Agregar/Borrar/Listar)"
-echo -e "${YELLOW}14)${NC} Montaje WebDAV (Sync espejo/Rclone/Crontab)"
+echo -e "${YELLOW}14)${CYAN} Montaje WebDAV ${NC}(Sync espejo/Rclone/Crontab)"
 echo -e "${CYAN}0)${NC} Salir"
 
     read -rp "Opción: " OPC
