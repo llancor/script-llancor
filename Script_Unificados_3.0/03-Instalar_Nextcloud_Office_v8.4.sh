@@ -2670,7 +2670,6 @@ fi
 # ===========================================================
 # MENU DOCUMENTSERVER COMMUNITY + COLLABORA ONLINE
 # ===========================================================
-
 menu_office_app(){
 
 while true; do
@@ -2683,16 +2682,17 @@ echo -e "${YELLOW}2)${RESET} Desinstalar DocumentServer + OnlyOffice"
 echo -e "${YELLOW}3)${RESET} Actualizar DocumentServer + OnlyOffice"
 echo -e "${YELLOW}4)${RESET} Estado DocumentServer + OnlyOffice"
 echo -e "${YELLOW}5)${RESET} Reconstruir fuentes DocumentServer"
+echo -e "${YELLOW}6)${RESET} REPARAR ONLYOFFICE DocumentServer (Recovery)"
 echo
 echo -e "${YELLOW}=====================================${RESET}"
 echo
 echo -e "${GREEN}===== COLLABORA ONLINE + NEXTCLOUD OFFICE =====${RESET}"
 echo
-echo -e "${YELLOW}6)${RESET} Instalar Collabora Online + Nextcloud Office"
-echo -e "${YELLOW}7)${RESET} Desinstalar Collabora Online + Nextcloud Office"
-echo -e "${YELLOW}8)${RESET} Actualizar Collabora Online + Nextcloud Office"
-echo -e "${YELLOW}9)${RESET} Estado Collabora Online + Nextcloud Office"
-echo -e "${YELLOW}10)${RESET} Reparar Fuentes Collabora Online"
+echo -e "${YELLOW}7)${RESET} Instalar Collabora Online + Nextcloud Office"
+echo -e "${YELLOW}8)${RESET} Desinstalar Collabora Online + Nextcloud Office"
+echo -e "${YELLOW}9)${RESET} Actualizar Collabora Online + Nextcloud Office"
+echo -e "${YELLOW}10)${RESET} Estado Collabora Online + Nextcloud Office"
+echo -e "${YELLOW}11)${RESET} Reparar Fuentes Collabora Online"
 echo -e "${YELLOW}0)${RESET} Volver"
 
 
@@ -2763,16 +2763,16 @@ case $op in
 IP=$(hostname -I | awk '{print $1}')
 
 echo -e "${CYAN}Servidor Nextcloud:${RESET}"
-echo -e "${YELLOW}http://$IP${RESET}"
+echo "http://$IP"
 
 echo
 echo -e "${CYAN}IMPORTANTE:${RESET}"
 echo "Debes configurar un servidor ONLYOFFICE Document Server."
 echo
-
-echo -e "${YELLOW}Ejemplos:${RESET}"
-echo "  http://ip-servidor/index.php/apps/documentserver_community/"
-echo "  https://office.midominio.com/index.php/apps/documentserver_community/"
+echo "Ejemplos:"
+echo "http://ip-srvidor//index.php/apps/documentserver_community/"
+echo "https://office.midominio.com/index.php/apps/documentserver_community/"
+echo
 
 pause
 ;;
@@ -2977,85 +2977,674 @@ echo
     pause
 ;;
 
-
 6)
-
     echo
-    echo -e "${YELLOW}========================================${RESET}"
-    echo -e "${YELLOW} Instalando Nextcloud Office${RESET}"
-    echo -e "${YELLOW}========================================${RESET}"
+    echo -e "${CYAN}============================================================${RESET}"
+    echo -e "${CYAN} REPARAR ONLYOFFICE COMMUNITY DOCUMENT SERVER${RESET}"
+    echo -e "${CYAN}============================================================${RESET}"
     echo
-
-    spin='-\|/'
 
     # =========================================================
-    # RICHDOCUMENTS
+    # VARIABLES
     # =========================================================
 
-    echo -e "${CYAN}Instalando richdocuments...${RESET}"
-	echo
-    echo -e "${CYAN}Esto puede tardar unos minutos...${RESET}"
-	
-    sudo -u "$WEB_USER" php "$NC_DIR/occ" app:install richdocuments &
-    PID=$!
+    OO_NC_PATH="${NC_DIR:-/var/www/nextcloud}"
+    OO_APP="$OO_NC_PATH/apps/documentserver_community"
 
-    while kill -0 "$PID" 2>/dev/null; do
-        for i in 0 1 2 3; do
-            printf "\rInstalando richdocuments... %s" "${spin:$i:1}"
-            sleep 0.2
-        done
+    OO_FONT_MANAGER="$OO_APP/lib/Document/FontManager.php"
+    OO_FONTS_CMD="$OO_APP/lib/Command/Fonts.php"
+    OO_QUERY_HELPER="$OO_APP/lib/DB/QueryHelper.php"
+    OO_APPLICATION="$OO_APP/lib/AppInfo/Application.php"
+    OO_OCC="$OO_NC_PATH/occ"
+
+    OO_TS="$(date +%Y%m%d-%H%M%S)"
+    OO_BACKUP_DIR="/root/backup-onlyoffice-community-$OO_TS"
+
+    # =========================================================
+    # VALIDACIONES
+    # =========================================================
+
+    if [ "$(id -u)" -ne 0 ]; then
+        echo -e "${RED}[ERROR] Debe ejecutar el script como root.${RESET}"
+        pause
+        continue
+    fi
+
+    OO_ERROR=0
+
+    for OO_FILE in \
+        "$OO_OCC" \
+        "$OO_FONT_MANAGER" \
+        "$OO_FONTS_CMD" \
+        "$OO_QUERY_HELPER" \
+        "$OO_APPLICATION"
+    do
+        if [ ! -f "$OO_FILE" ]; then
+            echo -e "${RED}[ERROR] No existe:${RESET}"
+            echo "  $OO_FILE"
+            OO_ERROR=1
+        fi
     done
 
-    wait "$PID"
+    if [ "$OO_ERROR" -ne 0 ]; then
+        echo
+        echo -e "${RED}DocumentServer Community no parece estar instalado correctamente.${RESET}"
+        pause
+        continue
+    fi
 
-    echo -e "\n${CYAN}Habilitando richdocuments...${RESET}"
+    if ! command -v php >/dev/null 2>&1; then
+        echo -e "${RED}[ERROR] PHP no está disponible.${RESET}"
+        pause
+        continue
+    fi
 
-    sudo -u "$WEB_USER" php "$NC_DIR/occ" app:enable richdocuments
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${RED}[ERROR] python3 no está instalado.${RESET}"
+        pause
+        continue
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo -e "${RED}[ERROR] curl no está instalado.${RESET}"
+        pause
+        continue
+    fi
 
     # =========================================================
-    # RICHDOCUMENTSCODE (COLLABORA CODE SERVER)
+    # VERSIONES
+    # =========================================================
+
+    echo -e "${CYAN}[INFO] Detectando versiones...${RESET}"
+
+    OO_NC_VERSION="$(
+        sudo -u www-data php "$OO_OCC" status 2>/dev/null |
+        awk -F': ' '/versionstring/{print $2}' |
+        xargs
+    )"
+
+    OO_DOC_VERSION="$(
+        sudo -u www-data php "$OO_OCC" app:list 2>/dev/null |
+        awk '/documentserver_community:/{print $3}' |
+        xargs
+    )"
+
+    OO_ONLYOFFICE_VERSION="$(
+        sudo -u www-data php "$OO_OCC" app:list 2>/dev/null |
+        awk '/onlyoffice:/{print $3}' |
+        xargs
+    )"
+
+    echo
+    echo "Nextcloud                : ${OO_NC_VERSION:-desconocido}"
+    echo "documentserver_community : ${OO_DOC_VERSION:-desconocido}"
+    echo "ONLYOFFICE               : ${OO_ONLYOFFICE_VERSION:-desconocido}"
+    echo
+
+    # =========================================================
+    # BACKUP
+    # =========================================================
+
+    echo -e "${CYAN}[INFO] Creando copia de seguridad...${RESET}"
+
+    if ! mkdir -p "$OO_BACKUP_DIR"; then
+        echo -e "${RED}[ERROR] No se pudo crear:${RESET}"
+        echo "  $OO_BACKUP_DIR"
+        pause
+        continue
+    fi
+
+    cp -a "$OO_FONT_MANAGER" "$OO_BACKUP_DIR/FontManager.php"
+    cp -a "$OO_FONTS_CMD" "$OO_BACKUP_DIR/Fonts.php"
+    cp -a "$OO_QUERY_HELPER" "$OO_BACKUP_DIR/QueryHelper.php"
+    cp -a "$OO_APPLICATION" "$OO_BACKUP_DIR/Application.php"
+
+    echo -e "${GREEN}[OK] Backup creado:${RESET}"
+    echo "  $OO_BACKUP_DIR"
+    echo
+
+    # =========================================================
+    # PARCHE 1
+    # FontManager.php
+    #
+    # Soluciona:
+    # allfontsgen -> libUnicodeConverter.so -> SIGSEGV
+    # =========================================================
+
+    echo -e "${CYAN}[INFO] Revisando FontManager.php...${RESET}"
+
+    python3 - "$OO_FONT_MANAGER" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# Ya corregido
+if (
+    "$cmd = './allfontsgen" in s
+    and "ConverterBinary::BINARY_DIRECTORY . '/../../tools'" in s
+):
+    print("ALREADY_PATCHED")
+    raise SystemExit(0)
+
+old_cmd = """$cmd = '../../tools/allfontsgen \\
+				--input="../../../core-fonts" \\
+				--input="' . $fontsDir . '" \\
+				--allfonts-web="../../../sdkjs/common/AllFonts.js" \\
+				--allfonts="AllFonts.js" \\
+				--images="../../../sdkjs/common/Images" \\
+				--output-web="../../../fonts" \\
+				--selection="font_selection.bin"';"""
+
+new_cmd = """$cmd = './allfontsgen \\
+				--input="../../core-fonts" \\
+				--input="' . $fontsDir . '" \\
+				--allfonts-web="../../sdkjs/common/AllFonts.js" \\
+				--allfonts="../FileConverter/bin/AllFonts.js" \\
+				--images="../../sdkjs/common/Images" \\
+				--output-web="../../fonts" \\
+				--selection="../FileConverter/bin/font_selection.bin"';"""
+
+old_proc = (
+    "$process = proc_open($cmd, $descriptorSpec, $pipes, "
+    "ConverterBinary::BINARY_DIRECTORY, []);"
+)
+
+new_proc = (
+    "$process = proc_open($cmd, $descriptorSpec, $pipes, "
+    "ConverterBinary::BINARY_DIRECTORY . '/../../tools', []);"
+)
+
+if old_cmd not in s:
+    print("ERROR_CMD_BLOCK_NOT_FOUND")
+    raise SystemExit(2)
+
+if old_proc not in s:
+    print("ERROR_PROC_OPEN_NOT_FOUND")
+    raise SystemExit(3)
+
+s = s.replace(old_cmd, new_cmd, 1)
+s = s.replace(old_proc, new_proc, 1)
+
+p.write_text(s)
+
+print("PATCHED")
+PY
+
+    OO_RC=$?
+
+    if [ "$OO_RC" -ne 0 ]; then
+        echo
+        echo -e "${RED}[ERROR] No se pudo corregir FontManager.php.${RESET}"
+        echo -e "${YELLOW}No se continuará para evitar modificar una versión desconocida.${RESET}"
+        echo
+        echo "Backup:"
+        echo "  $OO_BACKUP_DIR"
+        pause
+        continue
+    fi
+
+    echo -e "${GREEN}[OK] FontManager.php correcto.${RESET}"
+
+    # =========================================================
+    # PARCHE 2
+    # Fonts.php
+    #
+    # Corrige código de retorno del comando:
+    # documentserver:fonts --rebuild
     # =========================================================
 
     echo
-    echo -e "${YELLOW}========================================${RESET}"
-    echo -e "${YELLOW} Instalando CODE Server (Collabora)${RESET}"
-    echo -e "${YELLOW}========================================${RESET}"
+    echo -e "${CYAN}[INFO] Revisando Fonts.php...${RESET}"
+
+    python3 - "$OO_FONTS_CMD" <<'PY'
+from pathlib import Path
+import sys
+import re
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# Ya corregido
+if re.search(
+    r'catch\s*\(\\Exception \$e\).*?return 1;\s*}\s*return 0;',
+    s,
+    re.S
+):
+    print("ALREADY_PATCHED")
+    raise SystemExit(0)
+
+pattern = re.compile(
+    r'(catch\s*\(\\Exception \$e\)\s*\{.*?'
+    r'\$output->writeln\("<error>\$error</error>"\);\s*)'
+    r'return 0;'
+    r'(\s*\}\s*)'
+    r'return 1;',
+    re.S
+)
+
+nuevo, cantidad = pattern.subn(
+    r'\1return 1;\2return 0;',
+    s,
+    count=1
+)
+
+if cantidad != 1:
+    print("ERROR_RETURN_BLOCK_NOT_FOUND")
+    raise SystemExit(2)
+
+p.write_text(nuevo)
+
+print("PATCHED")
+PY
+
+    OO_RC=$?
+
+    if [ "$OO_RC" -ne 0 ]; then
+        echo
+        echo -e "${RED}[ERROR] No se pudo corregir Fonts.php.${RESET}"
+        echo "Backup: $OO_BACKUP_DIR"
+        pause
+        continue
+    fi
+
+    echo -e "${GREEN}[OK] Fonts.php correcto.${RESET}"
+
+    # =========================================================
+    # PARCHE 3
+    # QueryHelper.php
+    #
+    # Soluciona:
+    # ResultAdapter::fetchAssociative()
+    # ResultAdapter::fetchAllAssociative()
+    # =========================================================
+
     echo
+    echo -e "${CYAN}[INFO] Corrigiendo QueryHelper.php...${RESET}"
 
-    echo -e "${CYAN}Instalando richdocumentscode...${RESET}"
+    cat > "$OO_QUERY_HELPER" <<'PHP'
+<?php
 
-    sudo -u "$WEB_USER" php "$NC_DIR/occ" app:install richdocumentscode &
-    PID=$!
+declare(strict_types=1);
 
-    while kill -0 "$PID" 2>/dev/null; do
-        for i in 0 1 2 3; do
-            printf "\rInstalando richdocumentscode... %s" "${spin:$i:1}"
-            sleep 0.2
-        done
+namespace OCA\DocumentServer\DB;
+
+use OCP\DB\QueryBuilder\IQueryBuilder;
+
+class QueryHelper {
+
+	public static function fetchOne(IQueryBuilder $query) {
+		$result = method_exists($query, 'executeQuery')
+			? $query->executeQuery()
+			: $query->execute();
+
+		if (method_exists($result, 'fetchOne')) {
+			return $result->fetchOne();
+		}
+
+		return $result->fetchColumn();
+	}
+
+	public static function fetchRow(IQueryBuilder $query) {
+		$result = method_exists($query, 'executeQuery')
+			? $query->executeQuery()
+			: $query->execute();
+
+		if (method_exists($result, 'fetchAssociative')) {
+			return $result->fetchAssociative();
+		}
+
+		return $result->fetch();
+	}
+
+	public static function fetchAll(IQueryBuilder $query): array {
+		$result = method_exists($query, 'executeQuery')
+			? $query->executeQuery()
+			: $query->execute();
+
+		if (method_exists($result, 'fetchAllAssociative')) {
+			return $result->fetchAllAssociative();
+		}
+
+		return $result->fetchAll();
+	}
+
+	public static function fetchFirstColumn(IQueryBuilder $query): array {
+		$result = method_exists($query, 'executeQuery')
+			? $query->executeQuery()
+			: $query->execute();
+
+		if (method_exists($result, 'fetchFirstColumn')) {
+			return $result->fetchFirstColumn();
+		}
+
+		return $result->fetchAll(\PDO::FETCH_COLUMN);
+	}
+
+	public static function executeStatement(IQueryBuilder $query): int {
+		if (method_exists($query, 'executeStatement')) {
+			return $query->executeStatement();
+		}
+
+		return $query->execute();
+	}
+}
+PHP
+
+    OO_RC=$?
+
+    if [ "$OO_RC" -ne 0 ]; then
+        echo -e "${RED}[ERROR] No se pudo escribir QueryHelper.php.${RESET}"
+        pause
+        continue
+    fi
+
+    echo -e "${GREEN}[OK] QueryHelper.php corregido.${RESET}"
+
+    # =========================================================
+    # PARCHE 4
+    # Application.php
+    #
+    # Nextcloud 32 + ONLYOFFICE 9.14.x
+    #
+    # Soluciona:
+    #
+    # AppConfig::__construct():
+    # Argument #2 ($appConfig) must be of type OCP\IAppConfig,
+    # OC\AllConfig given
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Revisando compatibilidad de Application.php...${RESET}"
+
+    python3 - "$OO_APPLICATION" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+# Ya tiene la firma nueva
+if "\\OC::$server->get(\\OCP\\IAppConfig::class)" in s:
+    print("ALREADY_PATCHED")
+    raise SystemExit(0)
+
+old = (
+    "new AppConfig('onlyoffice', "
+    "\\OC::$server->getConfig(), "
+    "\\OCP\\Log\\logger('onlyoffice'), "
+    "\\OC::$server->get(ICacheFactory::class))"
+)
+
+new = """new AppConfig(
+				'onlyoffice',
+				\\OC::$server->get(\\OCP\\IAppConfig::class),
+				\\OC::$server->getConfig(),
+				\\OCP\\Log\\logger('onlyoffice'),
+				\\OC::$server->get(ICacheFactory::class)
+			)"""
+
+count = s.count(old)
+
+if count == 0:
+    print("NOT_NEEDED_OR_UNKNOWN_LAYOUT")
+    raise SystemExit(0)
+
+s = s.replace(old, new)
+
+p.write_text(s)
+
+print(f"PATCHED:{count}")
+PY
+
+    OO_RC=$?
+
+    if [ "$OO_RC" -ne 0 ]; then
+        echo
+        echo -e "${RED}[ERROR] Falló la revisión de Application.php.${RESET}"
+        echo "Backup: $OO_BACKUP_DIR"
+        pause
+        continue
+    fi
+
+    echo -e "${GREEN}[OK] Application.php compatible.${RESET}"
+
+    # =========================================================
+    # VALIDACIÓN PHP
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Validando sintaxis PHP...${RESET}"
+
+    OO_PHP_ERROR=0
+
+    for OO_FILE in \
+        "$OO_FONT_MANAGER" \
+        "$OO_FONTS_CMD" \
+        "$OO_QUERY_HELPER" \
+        "$OO_APPLICATION"
+    do
+        if php -l "$OO_FILE" >/dev/null 2>&1; then
+            echo -e "${GREEN}[OK]${RESET} $(basename "$OO_FILE")"
+        else
+            echo -e "${RED}[ERROR] Sintaxis incorrecta:${RESET}"
+            echo "  $OO_FILE"
+            OO_PHP_ERROR=1
+            break
+        fi
     done
 
-    wait "$PID"
+    # =========================================================
+    # RESTAURACIÓN AUTOMÁTICA SI PHP QUEDÓ MAL
+    # =========================================================
 
-    echo -e "\n${CYAN}Habilitando richdocumentscode...${RESET}"
+    if [ "$OO_PHP_ERROR" -ne 0 ]; then
 
-    sudo -u "$WEB_USER" php "$NC_DIR/occ" app:enable richdocumentscode
+        echo
+        echo -e "${YELLOW}[WARN] Restaurando archivos originales...${RESET}"
+
+        cp -a "$OO_BACKUP_DIR/FontManager.php" \
+              "$OO_FONT_MANAGER"
+
+        cp -a "$OO_BACKUP_DIR/Fonts.php" \
+              "$OO_FONTS_CMD"
+
+        cp -a "$OO_BACKUP_DIR/QueryHelper.php" \
+              "$OO_QUERY_HELPER"
+
+        cp -a "$OO_BACKUP_DIR/Application.php" \
+              "$OO_APPLICATION"
+
+        echo -e "${RED}[ERROR] Reparación cancelada y cambios revertidos.${RESET}"
+
+        pause
+        continue
+    fi
+
+    echo
+    echo -e "${GREEN}[OK] Todos los archivos PHP tienen sintaxis correcta.${RESET}"
 
     # =========================================================
-    # FINAL
+    # REINICIAR APACHE
     # =========================================================
 
     echo
-    echo -e "${GREEN}✔ Collabora Online instalado${RESET}"
-    echo -e "${GREEN}✔ Nextcloud Office habilitado${RESET}"
+    echo -e "${CYAN}[INFO] Reiniciando Apache...${RESET}"
+
+    if systemctl is-active --quiet apache2 2>/dev/null; then
+
+        if systemctl restart apache2; then
+            echo -e "${GREEN}[OK] Apache reiniciado correctamente.${RESET}"
+        else
+            echo -e "${YELLOW}[WARN] No fue posible reiniciar Apache.${RESET}"
+        fi
+
+    else
+        echo -e "${YELLOW}[WARN] Apache no aparece activo.${RESET}"
+    fi
+
+    # =========================================================
+    # RECONSTRUIR FUENTES
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Reconstruyendo fuentes ONLYOFFICE...${RESET}"
+
+    OO_REBUILD_OUTPUT="$(
+        sudo -u www-data \
+        php -d memory_limit=-1 \
+        "$OO_OCC" \
+        documentserver:fonts \
+        --rebuild 2>&1
+    )"
+
+    OO_REBUILD_RC=$?
+
+    echo "$OO_REBUILD_OUTPUT"
     echo
 
-echo
-echo -e "${YELLOW}IMPORTANTE:${RESET}"
-echo "Si usas proxy reverso o HTTPS,"
-echo "verifica la configuración en:"
-echo "Ajustes → Administración → Nextcloud Office"
+    if [ "$OO_REBUILD_RC" -ne 0 ]; then
 
-pause
+        echo -e "${RED}[ERROR] La reconstrucción de fuentes falló.${RESET}"
+        echo "Código: $OO_REBUILD_RC"
+        echo
+        echo "Backup:"
+        echo "  $OO_BACKUP_DIR"
+
+        pause
+        continue
+    fi
+
+    echo -e "${GREEN}[OK] Fuentes reconstruidas correctamente.${RESET}"
+
+    # =========================================================
+    # COMPROBAR SEGFAULT
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Buscando nuevos segfaults de allfontsgen...${RESET}"
+
+    if journalctl -k --since "-2 minutes" --no-pager 2>/dev/null |
+       grep -qi 'allfontsgen.*segfault'
+    then
+
+        echo -e "${RED}[ERROR] Se detectó un nuevo segfault de allfontsgen.${RESET}"
+        echo
+        echo "Revise con:"
+        echo
+        echo "journalctl -k --since \"-5 minutes\" --no-pager | grep -Ei 'allfontsgen|segfault|libUnicodeConverter'"
+
+        pause
+        continue
+
+    else
+
+        echo -e "${GREEN}[OK] No se detectaron nuevos segfaults.${RESET}"
+
+    fi
+
+    # =========================================================
+    # HEALTHCHECK
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Comprobando healthcheck de DocumentServer...${RESET}"
+
+    OO_DOCSERVER_URL="$(
+        sudo -u www-data \
+        php "$OO_OCC" \
+        config:app:get onlyoffice DocumentServerUrl \
+        2>/dev/null
+    )"
+
+    if [ -n "$OO_DOCSERVER_URL" ]; then
+
+        OO_HEALTH_URL="${OO_DOCSERVER_URL%/}/healthcheck"
+        OO_HEALTH_BODY="$(mktemp)"
+
+        OO_HEALTH_CODE="$(
+            curl --http1.1 \
+            -k \
+            -sS \
+            -o "$OO_HEALTH_BODY" \
+            -w '%{http_code}' \
+            "$OO_HEALTH_URL" \
+            2>/dev/null
+        )"
+
+        OO_HEALTH_TEXT="$(cat "$OO_HEALTH_BODY" 2>/dev/null)"
+        rm -f "$OO_HEALTH_BODY"
+
+        echo
+        echo "URL:"
+        echo "  $OO_HEALTH_URL"
+        echo
+
+        if [ "$OO_HEALTH_CODE" = "200" ]; then
+
+            echo -e "${GREEN}[OK] Healthcheck HTTP 200${RESET}"
+
+            if [ -n "$OO_HEALTH_TEXT" ]; then
+                echo "Respuesta: $OO_HEALTH_TEXT"
+            fi
+
+            # Borra un error antiguo almacenado por ONLYOFFICE.
+            sudo -u www-data \
+                php "$OO_OCC" \
+                config:app:delete onlyoffice settings_error \
+                >/dev/null 2>&1 || true
+
+        else
+
+            echo -e "${RED}[ERROR] Healthcheck falló.${RESET}"
+            echo "HTTP: ${OO_HEALTH_CODE:-sin respuesta}"
+            echo
+            echo -e "${YELLOW}Revise el log con:${RESET}"
+            echo
+            echo "tail -n 300 /var/www/nextcloud-data/nextcloud.log | \\"
+            echo "grep -Ei 'documentserver_community|onlyoffice|AppConfig|ResultAdapter|fetchAssociative|allfontsgen' | tail -80"
+
+            pause
+            continue
+        fi
+
+    else
+
+        echo -e "${YELLOW}[WARN] ONLYOFFICE no tiene DocumentServerUrl configurado.${RESET}"
+
+    fi
+
+    # =========================================================
+    # ESTADO FINAL
+    # =========================================================
+
+    echo
+    echo -e "${CYAN}[INFO] Estado de las aplicaciones:${RESET}"
+    echo
+
+    sudo -u www-data php "$OO_OCC" app:list 2>/dev/null |
+        grep -A2 -B2 -E 'onlyoffice|documentserver_community'
+
+    echo
+    echo -e "${GREEN}============================================================${RESET}"
+    echo -e "${GREEN} REPARACIÓN FINALIZADA CORRECTAMENTE${RESET}"
+    echo -e "${GREEN}============================================================${RESET}"
+    echo
+    echo "Nextcloud:"
+    echo "  ${OO_NC_VERSION:-desconocido}"
+    echo
+    echo "DocumentServer Community:"
+    echo "  ${OO_DOC_VERSION:-desconocido}"
+    echo
+    echo "ONLYOFFICE:"
+    echo "  ${OO_ONLYOFFICE_VERSION:-desconocido}"
+    echo
+    echo "Backup:"
+    echo "  $OO_BACKUP_DIR"
+    echo
+
+    pause
 ;;
 
 7)
