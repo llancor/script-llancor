@@ -11634,18 +11634,38 @@ case "\$MODE" in
   1)
     /usr/bin/rclone sync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 \\
       --create-empty-src-dirs --log-file="\$LOG" --log-level INFO
+    RC=\$?
     ;;
   2)
     /usr/bin/rclone sync "\$DEST" "\$SOURCE" --config "\$RCLONE_CONFIG" --disable-http2 \\
       --create-empty-src-dirs --log-file="\$LOG" --log-level INFO
+    RC=\$?
     ;;
   3)
-    /usr/bin/rclone bisync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 \\
-      --log-file="\$LOG" --log-level INFO
+    RESYNC_FLAG="/var/lib/nextcloud-remote-sync/${job}.resync-required"
+    mkdir -p /var/lib/nextcloud-remote-sync
+    if [[ -f "\$RESYNC_FLAG" ]]; then
+      /usr/bin/rclone bisync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 --resync \\
+        --log-file="\$LOG" --log-level INFO
+      RC=\$?
+      [[ \$RC -eq 0 ]] && rm -f "\$RESYNC_FLAG"
+    else
+      /usr/bin/rclone bisync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 \\
+        --log-file="\$LOG" --log-level INFO
+      RC=\$?
+      # Si bisync perdió/no tiene sus listados previos, recuperar automáticamente.
+      if [[ \$RC -ne 0 ]] && tail -n 40 "\$LOG" 2>/dev/null | grep -Eqi 'Must run --resync|cannot find prior Path1 or Path2 listings|Bisync aborted.*resync'; then
+        echo "\$(date '+%F %T') | Bisync requiere recuperación; ejecutando --resync automáticamente" >> "\$LOG"
+        touch "\$RESYNC_FLAG"
+        /usr/bin/rclone bisync "\$SOURCE" "\$DEST" --config "\$RCLONE_CONFIG" --disable-http2 --resync \\
+          --log-file="\$LOG" --log-level INFO
+        RC=\$?
+        [[ \$RC -eq 0 ]] && rm -f "\$RESYNC_FLAG"
+      fi
+    fi
     ;;
   *) exit 2 ;;
 esac
-RC=\$?
 
 if [[ \$RC -eq 0 ]]; then
     chown -R www-data:www-data "\$DEST" 2>/dev/null || true
@@ -11694,10 +11714,8 @@ sincronizar_remoto_usuario_nextcloud(){
 
     SELECTED_LINE="${REMOTE_RECORDS[$((N-1))]}"
     IFS='|' read -r REMOTE_NAME SERVER RUSER RFOLDER ROOTURL ROOTMNT REMOTE_MNT <<< "$SELECTED_LINE"
-
     [[ -n "$REMOTE_NAME" && -n "$RUSER" && -n "$ROOTURL" ]] || { echo -e "${RED}✘ Registro remoto inválido.${NC}"; nc_remote_pause; return; }
 
-    # Obtener la contraseña/token ya guardada por davfs2 para la raíz WebDAV.
     PASS=$(awk -v u="$ROOTURL" '$1==u {print $3; exit}' /etc/davfs2/secrets 2>/dev/null)
     if [[ -z "$PASS" ]]; then
         echo -e "${RED}✘ No encontré la contraseña/token para:${NC}"
@@ -11743,7 +11761,6 @@ sincronizar_remoto_usuario_nextcloud(){
     touch "$RCLONE_CONFIG"
     chmod 600 "$RCLONE_CONFIG"
 
-    # Crear/actualizar remoto rclone WebDAV DIRECTO. rclone guarda la contraseña ofuscada.
     rclone config delete "$RCLONE_REMOTE" --config "$RCLONE_CONFIG" >/dev/null 2>&1 || true
     if ! rclone config create "$RCLONE_REMOTE" webdav \
         url "$ROOTURL" vendor nextcloud user "$RUSER" pass "$PASS" \
@@ -11752,11 +11769,7 @@ sincronizar_remoto_usuario_nextcloud(){
         nc_remote_pause; return
     fi
 
-    if [[ -n "$RFOLDER" ]]; then
-        REMOTE_SPEC="$RCLONE_REMOTE:$RFOLDER"
-    else
-        REMOTE_SPEC="$RCLONE_REMOTE:"
-    fi
+    if [[ -n "$RFOLDER" ]]; then REMOTE_SPEC="$RCLONE_REMOTE:$RFOLDER"; else REMOTE_SPEC="$RCLONE_REMOTE:"; fi
 
     echo
     echo "WebDAV directo: $ROOTURL"
@@ -11764,75 +11777,43 @@ sincronizar_remoto_usuario_nextcloud(){
     echo "Destino local : $DEST"
     echo "Usuario       : $NC_TARGET_USER"
     echo
-
     echo -e "${CYAN}Probando acceso directo con rclone...${NC}"
     RCLONE_TEST_LOG="/tmp/rclone-webdav-test-${JOB}.log"
-    if ! rclone lsf "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --max-depth 1 \
-        > /dev/null 2>"$RCLONE_TEST_LOG"; then
+    if ! rclone lsf "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --max-depth 1 > /dev/null 2>"$RCLONE_TEST_LOG"; then
         echo -e "${RED}✘ rclone no pudo listar el remoto WebDAV.${NC}"
         echo -e "${YELLOW}Detalle del error:${NC}"
         tail -n 12 "$RCLONE_TEST_LOG" 2>/dev/null || true
-        echo
         echo "Config: $RCLONE_CONFIG"
         nc_remote_pause; return
     fi
     rm -f "$RCLONE_TEST_LOG"
     echo -e "${GREEN}✔ Acceso WebDAV directo correcto${NC}"
 
-    case "$MODE" in
-        1)
-            echo -e "${CYAN}Realizando copia inicial CPG → LLANCOR...${NC}"
-            rclone sync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
-            RC=$?
-            ;;
-        2)
-            echo -e "${CYAN}Realizando copia inicial LLANCOR → CPG...${NC}"
-            rclone sync "$DEST" "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
-            RC=$?
-            ;;
-        3)
-            echo -e "${YELLOW}Primera ejecución bidireccional directa contra WebDAV.${NC}"
-            echo -e "${YELLOW}Se creará el estado inicial de rclone bisync.${NC}"
-            rclone bisync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --resync --progress --log-file="$LOG" --log-level INFO
-            RC=$?
-            ;;
-    esac
-
-    if [[ $RC -ne 0 ]]; then
-        echo -e "${RED}✘ La sincronización inicial falló (código $RC).${NC}"
-        echo "Log: $LOG"
-        nc_remote_pause; return
-    fi
-
-    chown -R www-data:www-data -- "$DEST" 2>/dev/null || true
-    echo -e "${CYAN}Actualizando índice de Nextcloud...${NC}"
-    sudo -u www-data php "$NC_APP_DIR/occ" files:scan --path="$NC_TARGET_USER/files/$TARGET_FOLDER" || true
-
+    # PRIMERO dejar toda la configuración lista; DESPUÉS ejecutar la copia inicial.
     JOB_SCRIPT=$(nc_crear_job_rclone_directo "$JOB" "$MODE" "$REMOTE_SPEC" "$DEST" "$NC_TARGET_USER" "$NC_APP_DIR" "$RCLONE_CONFIG")
+
+    # Un bisync nuevo necesita --resync en su primera ejecución.
+    if [[ "$MODE" == "3" ]]; then
+        mkdir -p /var/lib/nextcloud-remote-sync
+        touch "/var/lib/nextcloud-remote-sync/${JOB}.resync-required"
+    fi
 
     echo
     echo -e "${CYAN}Frecuencia automática:${NC}"
-    echo "1) Cada 5 minutos"
-    echo "2) Cada 15 minutos"
-    echo "3) Cada 30 minutos"
-    echo "4) Cada 1 hora"
-    echo "5) Solo manual"
-    read -rp "Seleccione [2]: " FREQ
-    FREQ="${FREQ:-2}"
-    case "$FREQ" in
-        1) CRON_EXPR="*/5 * * * *" ;;
-        2) CRON_EXPR="*/15 * * * *" ;;
-        3) CRON_EXPR="*/30 * * * *" ;;
-        4) CRON_EXPR="0 * * * *" ;;
-        5) CRON_EXPR="" ;;
-        *) CRON_EXPR="" ;;
-    esac
-
+    CRON_EXPR=$(nc_sync_pick_frequency) || { echo "Opción inválida"; nc_remote_pause; return; }
     TAG="# NC-REMOTE-SYNC:$JOB"
     (crontab -l 2>/dev/null | grep -vF "$TAG"; [[ -n "$CRON_EXPR" ]] && echo "$CRON_EXPR $JOB_SCRIPT $TAG") | crontab -
 
+    if [[ -n "$CRON_EXPR" ]]; then
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl enable --now cron >/dev/null 2>&1 || true
+        else
+            service cron start >/dev/null 2>&1 || true
+        fi
+    fi
+
     echo
-    echo -e "${GREEN}✔ SINCRONIZACIÓN CONFIGURADA${NC}"
+    echo -e "${GREEN}✔ CONFIGURACIÓN DE SINCRONIZACIÓN GUARDADA${NC}"
     echo "WebDAV     : $REMOTE_SPEC"
     echo "Nextcloud  : $NC_TARGET_USER/files/$TARGET_FOLDER"
     echo "Modo       : $([[ "$MODE" == 3 ]] && echo 'BIDIRECCIONAL' || ([[ "$MODE" == 1 ]] && echo 'CPG → LLANCOR' || echo 'LLANCOR → CPG'))"
@@ -11840,8 +11821,73 @@ sincronizar_remoto_usuario_nextcloud(){
     echo "Comando    : $JOB_SCRIPT"
     echo "Log        : $LOG"
     echo
-    echo -e "${GREEN}La sincronización ya NO pasa por davfs2; rclone habla directamente con WebDAV.${NC}"
-    nc_remote_log "SYNC DIRECT $JOB | $REMOTE_SPEC <-> $DEST | modo=$MODE | cron=${CRON_EXPR:-manual}"
+
+    read -rp "¿Iniciar la sincronización ahora? [S/n]: " START_NOW
+    START_NOW="${START_NOW:-S}"
+    if [[ ! "$START_NOW" =~ ^[sS]$ ]]; then
+        echo -e "${GREEN}✔ Quedó configurada sin ejecutar la copia ahora.${NC}"
+        [[ -n "$CRON_EXPR" ]] && echo "Se ejecutará automáticamente según la frecuencia configurada."
+        nc_remote_log "SYNC CONFIG $JOB | $REMOTE_SPEC <-> $DEST | modo=$MODE | cron=${CRON_EXPR:-manual} | inicial=pendiente"
+        nc_remote_pause
+        return
+    fi
+
+    while true; do
+        echo
+        case "$MODE" in
+            1)
+                echo -e "${CYAN}Sincronizando ahora CPG → LLANCOR...${NC}"
+                rclone sync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
+                RC=$?
+                ;;
+            2)
+                echo -e "${CYAN}Sincronizando ahora LLANCOR → CPG...${NC}"
+                rclone sync "$DEST" "$REMOTE_SPEC" --config "$RCLONE_CONFIG" --disable-http2 --create-empty-src-dirs --progress --log-file="$LOG" --log-level INFO
+                RC=$?
+                ;;
+            3)
+                echo -e "${CYAN}Sincronizando ahora en modo bidireccional (--resync inicial)...${NC}"
+                rclone bisync "$REMOTE_SPEC" "$DEST" --config "$RCLONE_CONFIG" --disable-http2 --resync --progress --log-file="$LOG" --log-level INFO
+                RC=$?
+                [[ $RC -eq 0 ]] && rm -f "/var/lib/nextcloud-remote-sync/${JOB}.resync-required"
+                ;;
+        esac
+
+        if [[ $RC -eq 0 ]]; then
+            chown -R www-data:www-data -- "$DEST" 2>/dev/null || true
+            echo -e "${CYAN}Actualizando índice de Nextcloud...${NC}"
+            sudo -u www-data php "$NC_APP_DIR/occ" files:scan --path="$NC_TARGET_USER/files/$TARGET_FOLDER" || true
+            echo -e "${GREEN}✔ Sincronización terminada correctamente.${NC}"
+            break
+        fi
+
+        echo
+        echo -e "${RED}✘ La sincronización terminó con errores (código $RC).${NC}"
+        echo -e "${YELLOW}La configuración, el cron y los archivos ya copiados se conservan.${NC}"
+        echo "Log: $LOG"
+        echo
+        echo "1) Reintentar ahora"
+        echo "2) Ver últimos errores del log"
+        echo "3) Salir y dejar que el automático lo reintente"
+        echo "0) Salir"
+        read -rp "Seleccione: " ERR_OPT
+        case "$ERR_OPT" in
+            1) continue ;;
+            2)
+                echo -e "${CYAN}=== ÚLTIMOS ERRORES ===${NC}"
+                if [[ -f "$LOG" ]]; then
+                    grep -Ei 'error|failed|corrupt|permission denied|not found|cannot|unable' "$LOG" | tail -n 40 || tail -n 40 "$LOG"
+                else
+                    echo "No hay log disponible."
+                fi
+                nc_remote_pause
+                ;;
+            3|0) break ;;
+            *) echo "Opción inválida." ;;
+        esac
+    done
+
+    nc_remote_log "SYNC CONFIG $JOB | $REMOTE_SPEC <-> $DEST | modo=$MODE | cron=${CRON_EXPR:-manual} | rc=${RC:-0}"
     nc_remote_pause
 }
 
@@ -11870,18 +11916,32 @@ nc_sync_set_cron(){
 
 nc_sync_pick_frequency(){
     local opt
-    echo "1) Cada 5 minutos" >&2
-    echo "2) Cada 15 minutos" >&2
-    echo "3) Cada 30 minutos" >&2
-    echo "4) Cada 1 hora" >&2
-    echo "5) Solo manual / desactivar automático" >&2
+    echo "1) Cada 1 minuto" >&2
+    echo "2) Cada 2 minutos" >&2
+    echo "3) Cada 5 minutos" >&2
+    echo "4) Cada 10 minutos" >&2
+    echo "5) Cada 15 minutos" >&2
+    echo "6) Cada 30 minutos" >&2
+    echo "7) Cada 1 hora" >&2
+    echo "8) Cada 2 horas" >&2
+    echo "9) Cada 6 horas" >&2
+    echo "10) Cada 12 horas" >&2
+    echo "11) Una vez al día" >&2
+    echo "12) Solo manual / desactivar automático" >&2
     read -rp "Seleccione: " opt
     case "$opt" in
-        1) echo "*/5 * * * *" ;;
-        2) echo "*/15 * * * *" ;;
-        3) echo "*/30 * * * *" ;;
-        4) echo "0 * * * *" ;;
-        5) echo "" ;;
+        1) echo "* * * * *" ;;
+        2) echo "*/2 * * * *" ;;
+        3) echo "*/5 * * * *" ;;
+        4) echo "*/10 * * * *" ;;
+        5) echo "*/15 * * * *" ;;
+        6) echo "*/30 * * * *" ;;
+        7) echo "0 * * * *" ;;
+        8) echo "0 */2 * * *" ;;
+        9) echo "0 */6 * * *" ;;
+        10) echo "0 */12 * * *" ;;
+        11) echo "0 3 * * *" ;;
+        12) echo "" ;;
         *) return 1 ;;
     esac
 }
@@ -11986,6 +12046,7 @@ gestionar_sincronizaciones_nextcloud(){
                             echo -e "${YELLOW}Se mantiene en modo manual.${NC}"
                         else
                             nc_sync_set_cron "$job" "$script" "$expr"
+                            command -v systemctl >/dev/null 2>&1 && systemctl enable --now cron >/dev/null 2>&1 || true
                             echo -e "${GREEN}✔ Sincronización automática activada: $expr${NC}"
                         fi
                     fi
@@ -11995,6 +12056,7 @@ gestionar_sincronizaciones_nextcloud(){
                     echo "Nueva frecuencia:"
                     expr=$(nc_sync_pick_frequency) || { echo "Opción inválida"; nc_remote_pause; continue; }
                     nc_sync_set_cron "$job" "$script" "$expr"
+                    if [[ -n "$expr" ]] && command -v systemctl >/dev/null 2>&1; then systemctl enable --now cron >/dev/null 2>&1 || true; fi
                     [[ -n "$expr" ]] && echo -e "${GREEN}✔ Frecuencia actualizada: $expr${NC}" || echo -e "${GREEN}✔ Automático desactivado; queda disponible manualmente.${NC}"
                     nc_remote_pause
                     ;;
@@ -12053,6 +12115,270 @@ gestionar_sincronizaciones_nextcloud(){
     done
 }
 
+nc_sincronizar_ahora(){
+    local scripts=() i sel script job source dest mode log rc choice
+    local config ncuser appdir lock resync_flag cmd_desc
+
+    while true; do
+        clear
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}       SINCRONIZAR AHORA / TIEMPO REAL${NC}"
+        echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+        echo
+
+        mapfile -t scripts < <(find /usr/local/sbin -maxdepth 1 -type f -name 'nc-remote-sync-*.sh' 2>/dev/null | sort)
+        if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo -e "${YELLOW}No hay sincronizaciones configuradas.${NC}"
+            nc_remote_pause
+            return
+        fi
+
+        echo -e "${CYAN}Seleccione la carpeta que desea actualizar:${NC}"
+        for i in "${!scripts[@]}"; do
+            script="${scripts[$i]}"
+            job=$(nc_sync_get_tag "$script")
+            source=$(sed -n "s/^SOURCE='\\(.*\\)'/\\1/p" "$script" | head -n1)
+            dest=$(sed -n "s/^DEST='\\(.*\\)'/\\1/p" "$script" | head -n1)
+            if grep -q "^MODE='3'" "$script" || grep -q 'rclone bisync' "$script"; then
+                mode="BIDIRECCIONAL"
+            elif grep -q "^MODE='1'" "$script"; then
+                mode="CPG → LLANCOR"
+            else
+                mode="LLANCOR → CPG"
+            fi
+            echo "$((i+1))) $job"
+            echo "   Modo    : $mode"
+            echo "   Remoto  : ${source:-?}"
+            echo "   Destino : ${dest:-?}"
+        done
+        echo "0) Volver"
+        echo
+        read -rp "Seleccione: " sel
+        [[ "$sel" == "0" ]] && return
+        [[ "$sel" =~ ^[0-9]+$ ]] && ((sel>=1 && sel<=${#scripts[@]})) || { echo "Opción inválida"; sleep 1; continue; }
+
+        script="${scripts[$((sel-1))]}"
+        job=$(nc_sync_get_tag "$script")
+        source=$(sed -n "s/^SOURCE='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        dest=$(sed -n "s/^DEST='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        ncuser=$(sed -n "s/^NCUSER='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        appdir=$(sed -n "s/^APPDIR='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        config=$(sed -n "s/^RCLONE_CONFIG='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        log=$(sed -n "s/^LOG='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        lock=$(sed -n "s/^LOCK='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        mode=$(sed -n "s/^MODE='\\(.*\\)'/\\1/p" "$script" | head -n1)
+        [[ -z "$lock" ]] && lock="/run/lock/nc-remote-sync-${job}.lock"
+        [[ -z "$log" ]] && log="/var/log/nc-remote-sync-${job}.log"
+
+        while true; do
+            clear
+            echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+            echo -e "${CYAN}       $job${NC}"
+            echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+            echo "Modo    : $([[ "$mode" == "3" ]] && echo BIDIRECCIONAL || ([[ "$mode" == "1" ]] && echo 'CPG → LLANCOR' || echo 'LLANCOR → CPG'))"
+            echo "Remoto  : ${source:-?}"
+            echo "Destino : ${dest:-?}"
+            echo
+            echo "1) Sincronizar ahora - progreso en tiempo real"
+            echo "2) Sincronizar ahora - DETALLADO (muestra archivos/operaciones)"
+            echo "3) Ver log de la última sincronización"
+            echo "0) Volver"
+            echo
+            read -rp "Opción: " choice
+
+            case "$choice" in
+                1|2)
+                    clear
+                    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}       SINCRONIZACIÓN EN TIEMPO REAL${NC}"
+                    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                    echo "Trabajo  : $job"
+                    echo "Modo     : $([[ "$mode" == "3" ]] && echo BIDIRECCIONAL || ([[ "$mode" == "1" ]] && echo 'CPG → LLANCOR' || echo 'LLANCOR → CPG'))"
+                    echo "Remoto   : ${source:-?}"
+                    echo "Destino  : ${dest:-?}"
+                    echo "Detalle  : $([[ "$choice" == "2" ]] && echo 'ARCHIVOS Y OPERACIONES' || echo 'PROGRESO GENERAL')"
+                    echo "Log      : $log"
+                    echo
+
+                    # Usar exactamente el mismo lock del job automático para impedir
+                    # que cron y una ejecución manual trabajen al mismo tiempo.
+                    mkdir -p "$(dirname "$lock")" 2>/dev/null || true
+                    exec 8>"$lock"
+                    if ! flock -n 8; then
+                        echo -e "${YELLOW}⚠ Esta sincronización ya está ejecutándose (probablemente por cron).${NC}"
+                        echo "No se inició una segunda copia para evitar conflictos."
+                        nc_remote_pause
+                        continue
+                    fi
+
+                    mkdir -p -- "$dest"
+                    touch "$log" 2>/dev/null || true
+                    echo "===== EJECUCIÓN MANUAL $(date '+%F %T') =====" >> "$log"
+
+                    # Salida visible y simultáneamente guardada en el log.
+                    # -P muestra transferencia, velocidad, ETA y contadores.
+                    # -v agrega nombres de archivos y operaciones realizadas.
+                    if [[ "$choice" == "2" ]]; then
+                        EXTRA_ARGS=(--progress --stats 1s --verbose)
+                    else
+                        EXTRA_ARGS=(--progress --stats 1s)
+                    fi
+
+                    resync_flag="/var/lib/nextcloud-remote-sync/${job}.resync-required"
+                    case "$mode" in
+                        1)
+                            cmd_desc="rclone sync CPG → LLANCOR"
+                            /usr/bin/rclone sync "$source" "$dest" --config "$config" --disable-http2 \
+                                --create-empty-src-dirs "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$log"
+                            rc=${PIPESTATUS[0]}
+                            ;;
+                        2)
+                            cmd_desc="rclone sync LLANCOR → CPG"
+                            /usr/bin/rclone sync "$dest" "$source" --config "$config" --disable-http2 \
+                                --create-empty-src-dirs "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$log"
+                            rc=${PIPESTATUS[0]}
+                            ;;
+                        3)
+                            cmd_desc="rclone bisync CPG ↔ LLANCOR"
+                            mkdir -p /var/lib/nextcloud-remote-sync
+                            if [[ -f "$resync_flag" ]]; then
+                                echo -e "${YELLOW}Estado inicial pendiente: se ejecutará bisync --resync.${NC}"
+                                /usr/bin/rclone bisync "$source" "$dest" --config "$config" --disable-http2 --resync \
+                                    "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$log"
+                                rc=${PIPESTATUS[0]}
+                                [[ $rc -eq 0 ]] && rm -f "$resync_flag"
+                            else
+                                TMP_BISYNC_ERR=$(mktemp)
+                                /usr/bin/rclone bisync "$source" "$dest" --config "$config" --disable-http2 \
+                                    "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$log" "$TMP_BISYNC_ERR"
+                                rc=${PIPESTATUS[0]}
+
+                                # Recuperación automática si faltan los listados internos de bisync.
+                                if [[ $rc -ne 0 ]] && grep -Eqi 'Must run --resync|cannot find prior Path1 or Path2 listings|Bisync aborted.*resync' "$TMP_BISYNC_ERR"; then
+                                    echo
+                                    echo -e "${YELLOW}⚠ bisync perdió/no encuentra su estado anterior.${NC}"
+                                    echo -e "${CYAN}Ejecutando recuperación automática con --resync...${NC}"
+                                    touch "$resync_flag"
+                                    /usr/bin/rclone bisync "$source" "$dest" --config "$config" --disable-http2 --resync \
+                                        "${EXTRA_ARGS[@]}" 2>&1 | tee -a "$log"
+                                    rc=${PIPESTATUS[0]}
+                                    if [[ $rc -eq 0 ]]; then
+                                        rm -f "$resync_flag"
+                                        echo -e "${GREEN}✔ Estado de bisync reconstruido correctamente.${NC}"
+                                    else
+                                        echo -e "${RED}✘ La recuperación --resync también terminó con error.${NC}"
+                                        echo -e "${YELLOW}La marca de recuperación queda guardada para el próximo intento.${NC}"
+                                    fi
+                                fi
+                                rm -f "$TMP_BISYNC_ERR"
+                            fi
+                            ;;
+                        *)
+                            echo -e "${RED}✘ Modo de sincronización inválido.${NC}"
+                            rc=2
+                            ;;
+                    esac
+
+                    echo >> "$log"
+                    if [[ $rc -eq 0 ]]; then
+                        echo
+                        echo -e "${GREEN}✔ Sincronización terminada correctamente.${NC}"
+                        echo "Los cambios detectados fueron procesados sin esperar al cron."
+                        chown -R www-data:www-data -- "$dest" 2>/dev/null || true
+                        if [[ -n "$appdir" && -n "$ncuser" && -f "$appdir/occ" ]]; then
+                            echo -e "${CYAN}Actualizando índice de Nextcloud...${NC}"
+                            sudo -u www-data php "$appdir/occ" files:scan \
+                                --path="$ncuser/files/$(basename "$dest")" 2>&1 | tee -a "$log" || true
+                        fi
+                    else
+                        echo
+                        echo -e "${RED}✘ La sincronización terminó con código $rc.${NC}"
+                        echo "Revise el detalle mostrado arriba o use la opción 3 para ver el log."
+                        echo "Log: $log"
+                    fi
+                    echo "===== FIN EJECUCIÓN MANUAL $(date '+%F %T') RC=$rc =====" >> "$log"
+                    flock -u 8 2>/dev/null || true
+                    nc_remote_pause
+                    ;;
+                3)
+                    clear
+                    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}       ÚLTIMO LOG: $job${NC}"
+                    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+                    echo
+                    if [[ -f "$log" ]]; then
+                        tail -n 150 "$log"
+                    else
+                        echo -e "${YELLOW}Todavía no existe un log para esta sincronización.${NC}"
+                    fi
+                    nc_remote_pause
+                    ;;
+                0) break ;;
+                *) echo "Opción inválida"; sleep 1 ;;
+            esac
+        done
+    done
+}
+
+nc_estado_montaje_sync(){
+    clear
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}   ESTADO MONTAJES / RCLONE / CRON${NC}"
+    echo -e "${CYAN}══════════════════════════════════════════════${NC}"
+    echo
+
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet cron; then
+            echo -e "Cron servicio : ${GREEN}ACTIVO${NC}"
+        else
+            echo -e "Cron servicio : ${RED}INACTIVO${NC}"
+        fi
+        if systemctl is-enabled --quiet cron 2>/dev/null; then
+            echo -e "Cron al inicio: ${GREEN}HABILITADO${NC}"
+        else
+            echo -e "Cron al inicio: ${YELLOW}NO HABILITADO${NC}"
+        fi
+    else
+        echo -e "Cron servicio : ${YELLOW}systemctl no disponible${NC}"
+    fi
+
+    echo
+    echo -e "${CYAN}Montajes WebDAV configurados:${NC}"
+    if [[ -s "$NC_REMOTE_DB" ]]; then
+        while IFS='|' read -r name server user folder rooturl rootmnt mnt; do
+            [[ -z "$name" ]] && continue
+            if mountpoint -q -- "$rootmnt"; then rst="${GREEN}MONTADA${NC}"; else rst="${RED}DESCONECTADA${NC}"; fi
+            if mountpoint -q -- "$mnt"; then mst="${GREEN}MONTADA${NC}"; else mst="${RED}DESCONECTADA${NC}"; fi
+            echo -e "- ${YELLOW}$name${NC}"
+            echo -e "  WebDAV raíz : $rst  ($rootmnt)"
+            echo -e "  Carpeta     : $mst  ($mnt)"
+        done < "$NC_REMOTE_DB"
+    else
+        echo "No hay montajes WebDAV registrados."
+    fi
+
+    echo
+    echo -e "${CYAN}Sincronizaciones rclone:${NC}"
+    local found=0 script job cron_line freq
+    while IFS= read -r script; do
+        found=1
+        job=$(nc_sync_get_tag "$script")
+        cron_line=$(nc_sync_cron_line "$job")
+        if [[ -n "$cron_line" ]]; then
+            freq=$(echo "$cron_line" | awk '{print $1,$2,$3,$4,$5}')
+            echo -e "- ${YELLOW}$job${NC}: ${GREEN}AUTOMÁTICA${NC} [$freq]"
+        else
+            echo -e "- ${YELLOW}$job${NC}: ${YELLOW}MANUAL / DESACTIVADA${NC}"
+        fi
+    done < <(find /usr/local/sbin -maxdepth 1 -type f -name 'nc-remote-sync-*.sh' 2>/dev/null | sort)
+    [[ $found -eq 0 ]] && echo "No hay sincronizaciones rclone configuradas."
+
+    echo
+    echo "Para cambiar el tiempo de sincronización usa:"
+    echo -e "${YELLOW}7) Gestionar / quitar sincronización → 3) Cambiar frecuencia${NC}"
+    nc_remote_pause
+}
+
 menu_webdav_pro(){
     while true; do
         clear
@@ -12067,6 +12393,8 @@ menu_webdav_pro(){
         echo -e "${YELLOW}5)${NC} Contraseñas API - TOKEN (Crear/Borrar/Listar)"
         echo -e "${YELLOW}6)${NC} Sincronizar carpeta remota con usuario Nextcloud"
         echo -e "${YELLOW}7)${NC} Gestionar / quitar sincronización"
+        echo -e "${YELLOW}8)${NC} Ver estado montaje / rclone / cron"
+        echo -e "${YELLOW}9)${NC} Sincronizar ahora / progreso en tiempo real"
         echo
         echo -e "${CYAN}0)${NC} Volver"
         echo
@@ -12079,6 +12407,8 @@ menu_webdav_pro(){
             5) menu_tokens_api ;;
             6) sincronizar_remoto_usuario_nextcloud ;;
             7) gestionar_sincronizaciones_nextcloud ;;
+            8) nc_estado_montaje_sync ;;
+            9) nc_sincronizar_ahora ;;
             0) break ;;
             *) echo -e "${RED}Opción inválida${NC}"; sleep 1 ;;
         esac
