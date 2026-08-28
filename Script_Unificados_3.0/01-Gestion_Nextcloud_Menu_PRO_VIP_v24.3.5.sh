@@ -3417,7 +3417,8 @@ echo
 }
 
 # ========= FIN RESTORE =========
-# ========= RESTORE COPIA DE SEGURIDAD FORZADO =========
+
+# ========= INICIO RESTORE COPIA DE SEGURIDAD FORZADO ========= #
 
 restaurar_backup_forzado() {
 
@@ -3641,9 +3642,14 @@ restaurar_backup_forzado() {
     echo -e "${CYAN}📥 Restaurando archivos desde backup...${NC}"
     echo
 
+    # Mostrar avance global en tiempo real:
+    # bytes/GB restaurados, porcentaje, velocidad y tiempo restante.
+    # --human-readable hace más legible el tamaño y la velocidad.
+    # --info=progress2 muestra el progreso TOTAL de toda la restauración.
     if ! rsync \
         -aH \
-        --info=progress2 \
+        --human-readable \
+        --info=progress2,stats2 \
         "$SELECTED_BACKUP/" \
         "$NEXTCLOUD_DIR/"; then
 
@@ -3716,26 +3722,42 @@ restaurar_backup_forzado() {
     sleep 2
 
     # =========================================================
-    # OCC STATUS
+    # OCC STATUS ROBUSTO
     # =========================================================
 
     echo
-    echo -e "${CYAN}🔍 Verificando estado inicial...${NC}"
+    echo -e "${CYAN}🔍 Verificando estado inicial de Nextcloud...${NC}"
     echo
 
-    OCC_STATUS=$(
-        sudo -u "$USER_WEB" \
-            php "$NEXTCLOUD_DIR/occ" status 2>&1
-    )
+    OCC_STATUS=""
+    OCC_STATUS_EXIT=1
 
-    OCC_STATUS_EXIT=$?
+    # Después de iniciar Apache/PHP, OCC puede tardar unos segundos.
+    # Se realizan varios intentos antes de considerar que existe un error real.
+    for intento in {1..10}; do
+
+        OCC_STATUS=$(
+            sudo -u "$USER_WEB" \
+                php "$NEXTCLOUD_DIR/occ" status 2>&1
+        )
+
+        OCC_STATUS_EXIT=$?
+
+        if (( OCC_STATUS_EXIT == 0 )); then
+            break
+        fi
+
+        echo -e "${YELLOW}⚠ OCC aún no responde correctamente (${intento}/10). Reintentando...${NC}"
+        sleep 2
+
+    done
 
     echo "$OCC_STATUS"
 
     if (( OCC_STATUS_EXIT != 0 )); then
 
         echo
-        echo -e "${RED}❌ OCC reportó un error.${NC}"
+        echo -e "${RED}❌ OCC reportó un error después de varios intentos.${NC}"
         echo -e "${YELLOW}No se ejecutará ninguna reparación automática.${NC}"
 
         return 1
@@ -3748,8 +3770,14 @@ restaurar_backup_forzado() {
         tr -d '\r'
     )
 
+    MAINTENANCE_STATE=$(
+        echo "$OCC_STATUS" |
+        awk '/maintenance:/ {print $2}' |
+        tr -d '\r'
+    )
+
     # =========================================================
-    # OCC UPGRADE
+    # COMPLETAR UPGRADE POR TERMINAL
     # =========================================================
 
     if [[ "$NEEDS_UPGRADE" == "true" ]]; then
@@ -3762,8 +3790,15 @@ restaurar_backup_forzado() {
 
         echo -e "Código restaurado : ${WHITE}$BACKUP_VERSION${NC}"
         echo
-        echo -e "${CYAN}Ejecutando occ upgrade...${NC}"
+        echo -e "${CYAN}Nextcloud indica needsDbUpgrade=true.${NC}"
+        echo -e "${CYAN}Se completará ahora desde terminal para evitar el actualizador web.${NC}"
         echo
+
+        # Activar mantenimiento antes de tocar el esquema de BD.
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" \
+            maintenance:mode --on \
+            >/dev/null 2>&1 || true
 
         if sudo -u "$USER_WEB" \
             php "$NEXTCLOUD_DIR/occ" upgrade; then
@@ -3775,11 +3810,52 @@ restaurar_backup_forzado() {
 
             echo
             echo -e "${RED}❌ ERROR durante occ upgrade${NC}"
-            echo -e "${YELLOW}No se ejecutarán reparaciones adicionales.${NC}"
+            echo -e "${YELLOW}Nextcloud puede seguir solicitando completar la actualización.${NC}"
 
             return 1
 
         fi
+
+        # Verificar inmediatamente que el upgrade realmente quedó aplicado.
+        echo
+        echo -e "${CYAN}🔍 Verificando resultado de occ upgrade...${NC}"
+        echo
+
+        POST_UPGRADE_STATUS=$(
+            sudo -u "$USER_WEB" \
+                php "$NEXTCLOUD_DIR/occ" status 2>&1
+        )
+
+        POST_UPGRADE_EXIT=$?
+
+        echo "$POST_UPGRADE_STATUS"
+
+        if (( POST_UPGRADE_EXIT != 0 )); then
+
+            echo
+            echo -e "${RED}❌ No fue posible verificar Nextcloud después de occ upgrade.${NC}"
+            return 1
+
+        fi
+
+        POST_UPGRADE_NEEDED=$(
+            echo "$POST_UPGRADE_STATUS" |
+            awk '/needsDbUpgrade:/ {print $2}' |
+            tr -d '\r'
+        )
+
+        if [[ "$POST_UPGRADE_NEEDED" == "true" ]]; then
+
+            echo
+            echo -e "${RED}❌ Nextcloud todavía indica needsDbUpgrade=true.${NC}"
+            echo -e "${RED}Se detiene la restauración para NO dejar pendiente el actualizador web.${NC}"
+
+            return 1
+
+        fi
+
+        echo
+        echo -e "${GREEN}✔ Base de datos sincronizada con el código restaurado${NC}"
 
     else
 
@@ -3800,7 +3876,19 @@ restaurar_backup_forzado() {
         maintenance:mode --off \
         >/dev/null 2>&1 || true
 
-    echo -e "${GREEN}✔ Modo mantenimiento deshabilitado${NC}"
+    # Verificar que realmente quedó desactivado.
+    MAINTENANCE_CHECK=$(
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" status 2>/dev/null |
+        awk '/maintenance:/ {print $2}' |
+        tr -d '\r'
+    )
+
+    if [[ "$MAINTENANCE_CHECK" == "false" ]]; then
+        echo -e "${GREEN}✔ Modo mantenimiento deshabilitado${NC}"
+    else
+        echo -e "${YELLOW}⚠ No fue posible confirmar maintenance=false${NC}"
+    fi
 
     # =========================================================
     # REPARACION GENERAL
@@ -4070,6 +4158,76 @@ restaurar_backup_forzado() {
     )
 
     # =========================================================
+    # ÚLTIMO CONTROL DE DB UPGRADE
+    # =========================================================
+
+    if [[ "$FINAL_UPGRADE" == "true" ]]; then
+
+        echo
+        echo -e "${YELLOW}⚠ La verificación final aún indica needsDbUpgrade=true.${NC}"
+        echo -e "${CYAN}Intentando completar una última vez desde terminal...${NC}"
+        echo
+
+        sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" \
+            maintenance:mode --on \
+            >/dev/null 2>&1 || true
+
+        if sudo -u "$USER_WEB" \
+            php "$NEXTCLOUD_DIR/occ" upgrade; then
+
+            sudo -u "$USER_WEB" \
+                php "$NEXTCLOUD_DIR/occ" \
+                maintenance:mode --off \
+                >/dev/null 2>&1 || true
+
+            FINAL_STATUS=$(
+                sudo -u "$USER_WEB" \
+                    php "$NEXTCLOUD_DIR/occ" status 2>&1
+            )
+
+            echo
+            echo "$FINAL_STATUS"
+
+            FINAL_VERSION=$(
+                echo "$FINAL_STATUS" |
+                awk '/versionstring:/ {print $2}' |
+                tr -d '\r'
+            )
+
+            FINAL_UPGRADE=$(
+                echo "$FINAL_STATUS" |
+                awk '/needsDbUpgrade:/ {print $2}' |
+                tr -d '\r'
+            )
+
+            FINAL_MAINTENANCE=$(
+                echo "$FINAL_STATUS" |
+                awk '/maintenance:/ {print $2}' |
+                tr -d '\r'
+            )
+
+            FINAL_INSTALLED=$(
+                echo "$FINAL_STATUS" |
+                awk '/installed:/ {print $2}' |
+                tr -d '\r'
+            )
+
+        else
+
+            sudo -u "$USER_WEB" \
+                php "$NEXTCLOUD_DIR/occ" \
+                maintenance:mode --off \
+                >/dev/null 2>&1 || true
+
+            echo
+            echo -e "${RED}❌ El último intento de occ upgrade falló.${NC}"
+
+        fi
+
+    fi
+
+    # =========================================================
     # RESULTADO
     # =========================================================
 
@@ -4133,7 +4291,8 @@ restaurar_backup_forzado() {
     read -rp "Presiona ENTER para volver al menú..."
 
 }
-# ========= FIN RESTORE COPIA DE SEGURIDAD FORZADO =========
+
+# ========= FIN RESTORE COPIA DE SEGURIDAD FORZADO ========= #
 
 # INICIAR SERVICIOS DE Nextcloud
 
