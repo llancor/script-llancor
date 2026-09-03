@@ -13454,6 +13454,56 @@ nc_estado_montaje_sync(){
     echo -e "${YELLOW}7) Gestionar / quitar sincronización → 3) Cambiar frecuencia${NC}"
     nc_remote_pause
 }
+# ========= LIMPIAR HISTORIAL + CONTROL =========
+limpiar_historial() {
+
+    echo -e "\n${CYAN}⚠ Esto eliminará TODO el historial (memoria + archivo)${NC}"
+    read -p "¿Estás seguro? (s/n): " CONFIRMAR
+
+    if [[ "$CONFIRMAR" =~ ^[sS]$ ]]; then
+
+        echo -e "${YELLOW}Limpiando historial...${NC}"
+
+        # limpiar memoria
+        history -c
+
+        # borrar archivo
+        rm -f ~/.bash_history
+
+        echo -e "${GREEN}✔ Historial eliminado completamente${NC}"
+
+        echo ""
+        echo "¿Deseas seguir guardando historial?"
+        echo "1) Sí, activar historial"
+        echo "2) No, modo privado (no guardar)"
+        echo ""
+
+        read -p "Selecciona opción: " OPC
+
+        case $OPC in
+            1)
+                export HISTFILE=~/.bash_history
+                export HISTSIZE=1000
+                export HISTFILESIZE=2000
+                echo -e "${GREEN}✔ Historial ACTIVADO${NC}"
+                ;;
+            2)
+                unset HISTFILE
+                export HISTSIZE=0
+                export HISTFILESIZE=0
+                echo -e "${GREEN}✔ Historial DESACTIVADO (modo privado)${NC}"
+                ;;
+            *)
+                echo -e "${RED}Opción inválida, se mantiene configuración actual${NC}"
+                ;;
+        esac
+
+    else
+        echo -e "${RED}❌ Operación cancelada${NC}"
+    fi
+
+    read -p "Presiona ENTER para volver al menú..."
+}
 
 menu_webdav_pro(){
     while true; do
