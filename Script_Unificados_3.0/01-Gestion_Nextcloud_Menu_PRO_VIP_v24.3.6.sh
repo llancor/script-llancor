@@ -6393,6 +6393,339 @@ EOF
     pausa
 }
 
+# ---------- GESTIÓN DE EQUIPOS WOL GUARDADOS ----------
+# Archivo: /etc/wol-equipos.conf
+# Formato: nombre|IP|MAC|BROADCAST
+WOL_EQUIPOS_CONFIG="/etc/wol-equipos.conf"
+WOL_EQUIPOS_LOG="/var/log/wol-equipos.log"
+
+wol_equipos_asegurar_config() {
+    if [[ ! -e "$WOL_EQUIPOS_CONFIG" ]]; then
+        install -m 600 /dev/null "$WOL_EQUIPOS_CONFIG"
+    fi
+    chmod 600 "$WOL_EQUIPOS_CONFIG"
+}
+
+wol_equipos_asegurar_herramientas() {
+    local missing=()
+    command -v ping >/dev/null 2>&1 || missing+=(iputils-ping)
+    command -v wakeonlan >/dev/null 2>&1 || missing+=(wakeonlan)
+
+    if ((${#missing[@]})); then
+        echo "Faltan herramientas: ${missing[*]}"
+        read -rp "¿Instalarlas con apt install? [s/N]: " r
+        [[ "$r" =~ ^[sS]$ ]] || return 1
+        apt install -y "${missing[@]}" || return 1
+    fi
+}
+
+wol_equipos_validar_mac() {
+    [[ "$1" =~ ^([[:xdigit:]]{2}:){5}[[:xdigit:]]{2}$ ]]
+}
+
+wol_equipos_validar_ip() {
+    local ip=$1 a b c d
+    [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    IFS=. read -r a b c d <<< "$ip"
+    ((a<=255 && b<=255 && c<=255 && d<=255))
+}
+
+wol_equipos_mostrar() {
+    wol_equipos_asegurar_config
+    if [[ ! -s "$WOL_EQUIPOS_CONFIG" ]]; then
+        warn "Todavía no hay equipos guardados."
+        return
+    fi
+
+    printf "%-20s %-16s %-18s %-16s\n" "NOMBRE" "IP" "MAC" "BROADCAST"
+    printf '%s\n' '----------------------------------------------------------------------------'
+    while IFS='|' read -r name ip mac bcast; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        printf "%-20s %-16s %-18s %-16s\n" "$name" "$ip" "$mac" "$bcast"
+    done < "$WOL_EQUIPOS_CONFIG"
+}
+
+wol_equipos_buscar() {
+    awk -F'|' -v n="$1" '$1==n && NF>=4 {print; exit}' "$WOL_EQUIPOS_CONFIG"
+}
+
+wol_equipos_seleccionar() {
+    wol_equipos_mostrar
+    echo
+    read -rp "Nombre del equipo: " WOL_SEL_NOMBRE
+    WOL_SEL_RECORD="$(wol_equipos_buscar "$WOL_SEL_NOMBRE")"
+
+    if [[ -z "$WOL_SEL_RECORD" ]]; then
+        err "No se encontró ese equipo."
+        return 1
+    fi
+
+    IFS='|' read -r WOL_SEL_NOMBRE WOL_SEL_IP WOL_SEL_MAC WOL_SEL_BCAST <<< "$WOL_SEL_RECORD"
+}
+
+wol_equipos_pedir() {
+    local old_name="${1:-}" old_ip="${2:-}" old_mac="${3:-}" old_bcast="${4:-}"
+
+    read -rp "Nombre corto [${old_name:-obligatorio}]: " name
+    name="${name:-$old_name}"
+    [[ "$name" =~ ^[A-Za-z0-9_.-]{1,40}$ ]] || {
+        err "Nombre inválido."
+        return 1
+    }
+
+    read -rp "IP del equipo para ping [${old_ip:-192.168.0.x}]: " ip
+    ip="${ip:-$old_ip}"
+    wol_equipos_validar_ip "$ip" || {
+        err "IP IPv4 inválida."
+        return 1
+    }
+
+    read -rp "MAC del equipo [${old_mac:-AA:BB:CC:DD:EE:FF}]: " mac
+    mac="${mac:-$old_mac}"
+    mac="${mac//-/:}"
+    mac="${mac^^}"
+    wol_equipos_validar_mac "$mac" || {
+        err "MAC inválida."
+        return 1
+    }
+
+    local default_bcast
+    default_bcast="$(wol_cron_broadcast_defecto 2>/dev/null)"
+    default_bcast="${old_bcast:-${default_bcast:-255.255.255.255}}"
+
+    read -rp "Broadcast [${default_bcast}]: " bcast
+    bcast="${bcast:-$default_bcast}"
+    wol_equipos_validar_ip "$bcast" || {
+        err "Broadcast IPv4 inválido."
+        return 1
+    }
+
+    WOL_NEW_RECORD="$name|$ip|$mac|$bcast"
+}
+
+wol_equipos_agregar() {
+    clear
+    echo -e "${CYAN}${BOLD}=== AGREGAR EQUIPO WOL ===${NC}"
+    echo
+
+    wol_equipos_asegurar_config
+    wol_equipos_pedir || { pausa; return; }
+
+    local name="${WOL_NEW_RECORD%%|*}"
+
+    if grep -q "^${name}|" "$WOL_EQUIPOS_CONFIG"; then
+        err "Ya existe un equipo con ese nombre. Usa Editar."
+        pausa
+        return
+    fi
+
+    printf '%s\n' "$WOL_NEW_RECORD" >> "$WOL_EQUIPOS_CONFIG"
+    chmod 600 "$WOL_EQUIPOS_CONFIG"
+    ok "Equipo '$name' guardado."
+    pausa
+}
+
+wol_equipos_editar() {
+    clear
+    echo -e "${CYAN}${BOLD}=== EDITAR EQUIPO WOL ===${NC}"
+    echo
+
+    wol_equipos_asegurar_config
+    wol_equipos_mostrar
+    echo
+
+    read -rp "Nombre del equipo que deseas editar: " wanted
+    local record name ip mac bcast
+    record="$(wol_equipos_buscar "$wanted")"
+
+    [[ -n "$record" ]] || {
+        err "No se encontró ese equipo."
+        pausa
+        return
+    }
+
+    IFS='|' read -r name ip mac bcast <<< "$record"
+
+    echo "Pulsa ENTER para conservar cada valor actual."
+    wol_equipos_pedir "$name" "$ip" "$mac" "$bcast" || {
+        pausa
+        return
+    }
+
+    local new_name="${WOL_NEW_RECORD%%|*}"
+
+    if [[ "$new_name" != "$name" ]] &&
+       grep -q "^${new_name}|" "$WOL_EQUIPOS_CONFIG"; then
+        err "Ya existe otro equipo con ese nombre."
+        pausa
+        return
+    fi
+
+    local tmp
+    tmp="$(mktemp)"
+    awk -F'|' -v n="$name" '$1!=n {print}' "$WOL_EQUIPOS_CONFIG" > "$tmp"
+    printf '%s\n' "$WOL_NEW_RECORD" >> "$tmp"
+    install -m 600 "$tmp" "$WOL_EQUIPOS_CONFIG"
+    rm -f "$tmp"
+
+    ok "Configuración actualizada."
+    pausa
+}
+
+wol_equipos_eliminar() {
+    clear
+    echo -e "${CYAN}${BOLD}=== ELIMINAR EQUIPO WOL ===${NC}"
+    echo
+
+    wol_equipos_asegurar_config
+    wol_equipos_mostrar
+    echo
+
+    read -rp "Nombre del equipo que deseas eliminar: " wanted
+
+    wol_equipos_buscar "$wanted" >/dev/null || {
+        err "No se encontró ese equipo."
+        pausa
+        return
+    }
+
+    read -rp "¿Eliminar '$wanted'? [s/N]: " confirm
+    [[ "$confirm" =~ ^[sS]$ ]] || {
+        msg "Cancelado."
+        pausa
+        return
+    }
+
+    local tmp
+    tmp="$(mktemp)"
+    awk -F'|' -v n="$wanted" '$1!=n {print}' "$WOL_EQUIPOS_CONFIG" > "$tmp"
+    install -m 600 "$tmp" "$WOL_EQUIPOS_CONFIG"
+    rm -f "$tmp"
+
+    ok "Equipo eliminado."
+    pausa
+}
+
+wol_equipos_ping() {
+    clear
+    echo -e "${CYAN}${BOLD}=== PROBAR PING A EQUIPO ===${NC}"
+    echo
+
+    wol_equipos_asegurar_herramientas || {
+        pausa
+        return
+    }
+
+    wol_equipos_seleccionar || {
+        pausa
+        return
+    }
+
+    echo
+    msg "Probando conectividad con $WOL_SEL_NOMBRE ($WOL_SEL_IP)..."
+
+    if ping -c 4 -W 2 "$WOL_SEL_IP"; then
+        ok "El equipo responde al ping."
+    else
+        warn "El equipo no respondió al ping. Puede estar apagado, bloquear ICMP o no estar disponible."
+    fi
+
+    pausa
+}
+
+wol_equipos_despertar() {
+    clear
+    echo -e "${CYAN}${BOLD}=== PING + WAKE-ON-LAN ===${NC}"
+    echo
+
+    wol_equipos_asegurar_herramientas || {
+        pausa
+        return
+    }
+
+    wol_equipos_seleccionar || {
+        pausa
+        return
+    }
+
+    echo
+    msg "Comprobando primero si $WOL_SEL_NOMBRE ($WOL_SEL_IP) responde..."
+
+    if ping -c 2 -W 2 "$WOL_SEL_IP" >/dev/null 2>&1; then
+        ok "El equipo responde al ping. No se enviará el paquete mágico."
+        pausa
+        return
+    fi
+
+    warn "No responde. Enviando paquete mágico..."
+    echo "  MAC:       $WOL_SEL_MAC"
+    echo "  Broadcast: $WOL_SEL_BCAST"
+
+    if wakeonlan -i "$WOL_SEL_BCAST" "$WOL_SEL_MAC"; then
+        ok "Paquete mágico enviado. Espera unos segundos y vuelve a probar el ping."
+        printf '%s | equipo=%s | ip=%s | mac=%s | broadcast=%s | enviado\n' \
+            "$(date '+%F %T')" "$WOL_SEL_NOMBRE" "$WOL_SEL_IP" \
+            "$WOL_SEL_MAC" "$WOL_SEL_BCAST" >> "$WOL_EQUIPOS_LOG"
+    else
+        err "No se pudo enviar el paquete mágico."
+        printf '%s | equipo=%s | ERROR envío WOL\n' \
+            "$(date '+%F %T')" "$WOL_SEL_NOMBRE" >> "$WOL_EQUIPOS_LOG"
+    fi
+
+    pausa
+}
+
+wol_equipos_despertar_siempre() {
+    clear
+    echo -e "${CYAN}${BOLD}=== ENVIAR WOL SIEMPRE ===${NC}"
+    echo
+
+    wol_equipos_asegurar_herramientas || {
+        pausa
+        return
+    }
+
+    wol_equipos_seleccionar || {
+        pausa
+        return
+    }
+
+    echo
+    warn "Esta opción enviará el paquete aunque el equipo responda al ping."
+    read -rp "¿Continuar? [s/N]: " confirm
+    [[ "$confirm" =~ ^[sS]$ ]] || {
+        msg "Cancelado."
+        pausa
+        return
+    }
+
+    if wakeonlan -i "$WOL_SEL_BCAST" "$WOL_SEL_MAC"; then
+        ok "Paquete mágico enviado."
+        printf '%s | equipo=%s | ip=%s | mac=%s | broadcast=%s | enviado_siempre\n' \
+            "$(date '+%F %T')" "$WOL_SEL_NOMBRE" "$WOL_SEL_IP" \
+            "$WOL_SEL_MAC" "$WOL_SEL_BCAST" >> "$WOL_EQUIPOS_LOG"
+    else
+        err "Falló el envío."
+    fi
+
+    pausa
+}
+
+wol_equipos_log() {
+    clear
+    echo -e "${CYAN}${BOLD}=== REGISTRO WOL ===${NC}"
+    echo
+
+    if [[ -f "$WOL_EQUIPOS_LOG" ]]; then
+        tail -n 50 "$WOL_EQUIPOS_LOG"
+    else
+        warn "Todavía no hay registros."
+    fi
+
+    echo
+    pausa
+}
+
 # ---------- GESTIÓN CRON WOL (encender otros PC de forma programada) ----------
 # Cada programación es una línea en el crontab de root marcada con "# WOL-CRON:<nombre>".
 # El cron llama a /usr/local/bin/wol-encender.sh, que (si se indicó la IP) primero hace ping
@@ -6593,25 +6926,40 @@ wol_cron_ver_log() {
 }
 
 wol_menu() {
-
     while true; do
-
         clear
 
-        echo -e "${CYAN}${BOLD}=== WAKE-ON-LAN (WOL) ===${NC}"
+        echo -e "${CYAN}${BOLD}========================================${NC}"
+        echo -e "${CYAN}${BOLD}       GESTIÓN WAKE-ON-LAN (WOL)${NC}"
+        echo -e "${CYAN}${BOLD}========================================${NC}"
         echo
-        echo -e " ${GRAY}-- Este equipo (para que se pueda encender por red) --${NC}"
+        echo -e " ${GRAY}-- Este equipo: configurar WOL --${NC}"
         echo -e " ${YELLOW}1)${NC} Listar interfaces"
         echo -e " ${YELLOW}2)${NC} Verificar compatibilidad WOL"
         echo -e " ${YELLOW}3)${NC} Ver estado WOL"
         echo -e " ${YELLOW}4)${NC} Activar WOL"
         echo -e " ${YELLOW}5)${NC} Hacer persistente"
-        echo -e " ${GRAY}-- Gestión Cron WOL (encender otros PC) --${NC}"
-        echo -e " ${YELLOW}6)${NC} Enviar paquete WOL ahora"
-        echo -e " ${YELLOW}7)${NC} Programar encendido (cron)"
-        echo -e " ${YELLOW}8)${NC} Ver encendidos programados"
-        echo -e " ${YELLOW}9)${NC} Eliminar encendido programado"
-        echo -e " ${YELLOW}10)${NC} Ver registro de encendidos"
+
+        echo
+        echo -e " ${GRAY}-- Equipos guardados: ping + WOL --${NC}"
+        echo -e " ${YELLOW}6)${NC} Ver equipos guardados"
+        echo -e " ${YELLOW}7)${NC} Agregar equipo"
+        echo -e " ${YELLOW}8)${NC} Editar equipo"
+        echo -e " ${YELLOW}9)${NC} Probar ping a equipo"
+        echo -e " ${YELLOW}10)${NC} Ping + enviar WOL si no responde"
+        echo -e " ${YELLOW}11)${NC} Enviar WOL siempre"
+        echo -e " ${YELLOW}12)${NC} Eliminar equipo"
+        echo -e " ${YELLOW}13)${NC} Ver registro WOL"
+
+        echo
+        echo -e " ${GRAY}-- Encendidos WOL programados (cron) --${NC}"
+        echo -e " ${YELLOW}14)${NC} Enviar paquete WOL ahora"
+        echo -e " ${YELLOW}15)${NC} Programar encendido (cron)"
+        echo -e " ${YELLOW}16)${NC} Ver encendidos programados"
+        echo -e " ${YELLOW}17)${NC} Eliminar encendido programado"
+        echo -e " ${YELLOW}18)${NC} Ver registro de encendidos"
+
+        echo
         echo -e " ${CYAN}0)${NC} Volver"
         echo
 
@@ -6623,44 +6971,35 @@ wol_menu() {
                 wol_listar_interfaces
                 pausa
                 ;;
-            2)
-                wol_verificar
-                ;;
-            3)
-                wol_estado
-                ;;
-            4)
-                wol_activar
-                ;;
-            5)
-                wol_persistente
-                ;;
+            2) wol_verificar ;;
+            3) wol_estado ;;
+            4) wol_activar ;;
+            5) wol_persistente ;;
             6)
-                wol_cron_enviar_ahora
-                ;;
-            7)
-                wol_cron_agregar
-                ;;
-            8)
-                wol_cron_listar
-                ;;
-            9)
-                wol_cron_eliminar
-                ;;
-            10)
-                wol_cron_ver_log
-                ;;
-            0)
-                return
-                ;;
-            *)
-                warn "Opción inválida."
+                clear
+                echo -e "${CYAN}${BOLD}=== EQUIPOS WOL GUARDADOS ===${NC}"
+                echo
+                wol_equipos_mostrar
                 pausa
                 ;;
+            7) wol_equipos_agregar ;;
+            8) wol_equipos_editar ;;
+            9) wol_equipos_ping ;;
+            10) wol_equipos_despertar ;;
+            11) wol_equipos_despertar_siempre ;;
+            12) wol_equipos_eliminar ;;
+            13) wol_equipos_log ;;
+            14) wol_cron_enviar_ahora ;;
+            15) wol_cron_agregar ;;
+            16) wol_cron_listar ;;
+            17) wol_cron_eliminar ;;
+            18) wol_cron_ver_log ;;
+            0) return ;;
+            *) warn "Opción inválida."; pausa ;;
         esac
-
     done
 }
+
 
 # ---------- MENU RED ----------
 
