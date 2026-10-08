@@ -6450,16 +6450,44 @@ wol_equipos_buscar() {
 }
 
 wol_equipos_seleccionar() {
-    wol_equipos_mostrar
-    echo
-    read -rp "Nombre del equipo: " WOL_SEL_NOMBRE
-    WOL_SEL_RECORD="$(wol_equipos_buscar "$WOL_SEL_NOMBRE")"
+    wol_equipos_asegurar_config
 
-    if [[ -z "$WOL_SEL_RECORD" ]]; then
-        err "No se encontró ese equipo."
+    if [[ ! -s "$WOL_EQUIPOS_CONFIG" ]]; then
+        warn "Todavía no hay equipos guardados."
         return 1
     fi
 
+    echo -e "${CYAN}${BOLD}Equipos disponibles:${NC}"
+    echo
+
+    local -a registros=()
+    local name ip mac bcast
+    local n=0
+
+    while IFS='|' read -r name ip mac bcast; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        registros+=("$name|$ip|$mac|$bcast")
+        ((n++))
+        printf " ${YELLOW}%2d)${NC} %-20s  IP: %-15s  MAC: %s\n" \
+            "$n" "$name" "$ip" "$mac"
+    done < "$WOL_EQUIPOS_CONFIG"
+
+    if ((${#registros[@]} == 0)); then
+        warn "No hay equipos válidos guardados."
+        return 1
+    fi
+
+    echo
+    local opcion
+    read -rp "Selecciona el número del equipo: " opcion
+
+    if [[ ! "$opcion" =~ ^[0-9]+$ ]] ||
+       (( opcion < 1 || opcion > ${#registros[@]} )); then
+        err "Selección inválida."
+        return 1
+    fi
+
+    WOL_SEL_RECORD="${registros[$((opcion-1))]}"
     IFS='|' read -r WOL_SEL_NOMBRE WOL_SEL_IP WOL_SEL_MAC WOL_SEL_BCAST <<< "$WOL_SEL_RECORD"
 }
 
@@ -6531,19 +6559,13 @@ wol_equipos_editar() {
     echo
 
     wol_equipos_asegurar_config
-    wol_equipos_mostrar
-    echo
-
-    read -rp "Nombre del equipo que deseas editar: " wanted
     local record name ip mac bcast
-    record="$(wol_equipos_buscar "$wanted")"
-
-    [[ -n "$record" ]] || {
-        err "No se encontró ese equipo."
+    wol_equipos_seleccionar || {
         pausa
         return
     }
 
+    record="$WOL_SEL_RECORD"
     IFS='|' read -r name ip mac bcast <<< "$record"
 
     echo "Pulsa ENTER para conservar cada valor actual."
@@ -6578,16 +6600,12 @@ wol_equipos_eliminar() {
     echo
 
     wol_equipos_asegurar_config
-    wol_equipos_mostrar
-    echo
-
-    read -rp "Nombre del equipo que deseas eliminar: " wanted
-
-    wol_equipos_buscar "$wanted" >/dev/null || {
-        err "No se encontró ese equipo."
+    wol_equipos_seleccionar || {
         pausa
         return
     }
+
+    local wanted="$WOL_SEL_NOMBRE"
 
     read -rp "¿Eliminar '$wanted'? [s/N]: " confirm
     [[ "$confirm" =~ ^[sS]$ ]] || {
@@ -6649,7 +6667,7 @@ wol_equipos_despertar() {
     }
 
     echo
-    msg "Comprobando primero si $WOL_SEL_NOMBRE ($WOL_SEL_IP) responde..."
+    echo -e "${CYAN}Comprobando primero si $WOL_SEL_NOMBRE ($WOL_SEL_IP) responde...${NC}"
 
     if ping -c 2 -W 2 "$WOL_SEL_IP" >/dev/null 2>&1; then
         ok "El equipo responde al ping. No se enviará el paquete mágico."
@@ -6694,7 +6712,7 @@ wol_equipos_despertar_siempre() {
     warn "Esta opción enviará el paquete aunque el equipo responda al ping."
     read -rp "¿Continuar? [s/N]: " confirm
     [[ "$confirm" =~ ^[sS]$ ]] || {
-        msg "Cancelado."
+        echo -e "${CYAN}Cancelado.${NC}"
         pausa
         return
     }
@@ -6798,16 +6816,71 @@ wol_cron_pedir_destino() {
     fi
 }
 
+# Opción 14: listar las programaciones guardadas en cron y enviar WOL a una elegida.
+# Lee las configuraciones creadas por wol_cron_agregar (marcadas WOL-CRON:nombre).
 wol_cron_enviar_ahora() {
+
     clear
-    echo -e "${CYAN}${BOLD}=== ENVIAR PAQUETE WOL AHORA ===${NC}"
+    echo -e "${CYAN}${BOLD}=== CONFIGURACIONES CRON WOL: LISTAR Y ENVIAR ===${NC}"
     echo
+
+    local lineas linea nombre mac bcast ip expr seleccion
+    local -a entradas nombres macs broadcasts ips expresiones
+
+    while IFS= read -r linea; do
+        [[ "$linea" == *"${WOL_CRON_TAG}"* ]] || continue
+        # Los primeros 5 campos son la expresión cron; después vienen helper, MAC, broadcast e IP.
+        read -r _m _h _d _me _ds _helper mac bcast ip _resto <<< "$linea"
+        nombre="${linea##*${WOL_CRON_TAG}}"
+        expr="$_m $_h $_d $_me $_ds"
+        [[ "$ip" == "-" ]] && ip="(sin comprobar)"
+        entradas+=("$linea")
+        nombres+=("$nombre")
+        macs+=("$mac")
+        broadcasts+=("$bcast")
+        ips+=("$ip")
+        expresiones+=("$expr")
+    done < <(crontab -l 2>/dev/null)
+
+    if (( ${#entradas[@]} == 0 )); then
+        warn "No hay configuraciones WOL creadas en cron."
+        echo "Crea primero una programación desde la opción correspondiente del menú."
+        pausa
+        return
+    fi
+
+    for ((i=0; i<${#entradas[@]}; i++)); do
+        printf ' %b%d)%b %s | MAC: %s | Broadcast: %s | IP: %s | Cron: %s\n' \
+            "$YELLOW" "$((i+1))" "$NC" "${nombres[i]}" "${macs[i]}" \
+            "${broadcasts[i]}" "${ips[i]}" "${expresiones[i]}"
+    done
+    echo
+    echo "Selecciona el equipo al que deseas enviar el paquete mágico."
+    read -rp "Número (0 para cancelar): " seleccion
+    [[ "$seleccion" == "0" ]] && return
+    if [[ ! "$seleccion" =~ ^[0-9]+$ ]] || (( seleccion < 1 || seleccion > ${#entradas[@]} )); then
+        err "Selección inválida."
+        pausa
+        return
+    fi
+
+    local idx=$((seleccion-1))
     wol_cron_herramientas || { pausa; return; }
-    wol_cron_pedir_destino || { pausa; return; }
-    if wakeonlan -i "$WOL_BCAST" "$WOL_MAC"; then
-        ok "Paquete mágico enviado a $WOL_MAC (broadcast $WOL_BCAST)."
+    echo
+    echo "Equipo: ${nombres[idx]}"
+    echo "MAC: ${macs[idx]}"
+    echo "Broadcast: ${broadcasts[idx]}"
+    read -rp "¿Enviar ahora el paquete Wake-on-LAN? [s/N]: " confirmar
+    [[ "$confirmar" =~ ^[sS]$ ]] || { warn "Envío cancelado."; pausa; return; }
+
+    if wakeonlan -i "${broadcasts[idx]}" "${macs[idx]}"; then
+        ok "Paquete mágico enviado a ${nombres[idx]} (${macs[idx]})."
+        printf '%s %s (%s) paquete WOL enviado manualmente desde menú\n' \
+            "$(date '+%F %T')" "${nombres[idx]}" "${macs[idx]}" >> "$WOL_CRON_LOG"
     else
-        err "No se pudo enviar el paquete."
+        err "No se pudo enviar el paquete a ${nombres[idx]}."
+        printf '%s %s (%s) ERROR al enviar paquete WOL desde menú\n' \
+            "$(date '+%F %T')" "${nombres[idx]}" "${macs[idx]}" >> "$WOL_CRON_LOG"
     fi
     pausa
 }
