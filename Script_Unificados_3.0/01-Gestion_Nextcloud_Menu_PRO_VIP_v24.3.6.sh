@@ -7006,7 +7006,7 @@ wol_menu() {
         echo -e "${CYAN}${BOLD}       GESTIÓN WAKE-ON-LAN (WOL)${NC}"
         echo -e "${CYAN}${BOLD}========================================${NC}"
         echo
-        echo -e " ${GRAY}-- Este equipo: configurar WOL --${NC}"
+        echo -e " ${YELLOW}-- Este equipo: configurar WOL --${NC}"
         echo -e " ${YELLOW}1)${NC} Listar interfaces"
         echo -e " ${YELLOW}2)${NC} Verificar compatibilidad WOL"
         echo -e " ${YELLOW}3)${NC} Ver estado WOL"
@@ -7014,7 +7014,7 @@ wol_menu() {
         echo -e " ${YELLOW}5)${NC} Hacer persistente"
 
         echo
-        echo -e " ${GRAY}-- Equipos guardados: ping + WOL --${NC}"
+        echo -e " ${YELLOW}-- Equipos guardados: ping + WOL --${NC}"
         echo -e " ${YELLOW}6)${NC} Ver equipos guardados"
         echo -e " ${YELLOW}7)${NC} Agregar equipo"
         echo -e " ${YELLOW}8)${NC} Editar equipo"
@@ -7025,7 +7025,7 @@ wol_menu() {
         echo -e " ${YELLOW}13)${NC} Ver registro WOL"
 
         echo
-        echo -e " ${GRAY}-- Encendidos WOL programados (cron) --${NC}"
+        echo -e " ${YELLOW}-- Encendidos WOL programados (cron) --${NC}"
         echo -e " ${YELLOW}14)${NC} Enviar paquete WOL ahora"
         echo -e " ${YELLOW}15)${NC} Programar encendido (cron)"
         echo -e " ${YELLOW}16)${NC} Ver encendidos programados"
