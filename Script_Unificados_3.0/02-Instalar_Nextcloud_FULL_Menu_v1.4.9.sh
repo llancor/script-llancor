@@ -1735,8 +1735,12 @@ menu_servicios(){
 
 
 # ========= RESPALDO / RESTAURACIÓN MYSQL 2.0 =========
+# ========= RESPALDO / RESTAURACIÓN MYSQL 2.1 =========
 
 BACKUP_DIR="/root/BackupDB"
+
+# Usuarios del sistema que NUNCA se deben tocar
+MYSQL_SYS_USERS="'root','mysql','mariadb.sys','mysql.sys','mysql.session','mysql.infoschema','debian-sys-maint',''"
 
 menu_mysql_backup(){
 
@@ -1750,10 +1754,11 @@ menu_mysql_backup(){
     echo -e " ${YELLOW}1)${NC} Respaldar BD MYSQL + Info"
     echo -e " ${YELLOW}2)${NC} Restaurar BD MYSQL Listado"
     echo -e " ${YELLOW}3)${NC} Listar respaldos MYSQL + Info"
-	echo -e " ${YELLOW}4)${NC} Restaurar BD MYSQL Listado + Info"
-	echo -e " ${YELLOW}5)${NC} Crear BD + Usuario MYSQL"
+    echo -e " ${YELLOW}4)${NC} Restaurar BD MYSQL Listado + Info"
+    echo -e " ${YELLOW}5)${NC} Crear BD + Usuario MYSQL"
     echo -e " ${YELLOW}6)${NC} Eliminar BD + Usuario MYSQL"
-	echo -e " ${YELLOW}7)${NC} Reiniciar servicio MySQL"
+    echo -e " ${YELLOW}7)${NC} Reiniciar servicio MySQL"
+    echo -e " ${YELLOW}8)${NC} Eliminar usuarios MYSQL huérfanos (sin BD)"
     echo -e " ${CYAN}0) Volver${NC}"
 
     read -rp "> " op
@@ -1787,6 +1792,7 @@ menu_mysql_backup(){
       # VERSION NEXTCLOUD
       # =========================================================
 
+      NC_VERSION=""
       if [ -f "$NC_DIR/occ" ]; then
 
         NC_VERSION=$(
@@ -1819,7 +1825,7 @@ menu_mysql_backup(){
 
       mysqldump -uroot -p"$ROOT_PASS" "$db" | gzip > "$DB_BACKUP"
 
-      if [ $? -eq 0 ]; then
+      if [ "${PIPESTATUS[0]}" -eq 0 ]; then
         ok "Respaldo creado correctamente."
       else
         err "Error al crear respaldo."
@@ -1834,7 +1840,7 @@ menu_mysql_backup(){
 
      2)
 
-   echo -e "${YELLOW}Respaldos disponibles:${NC}"
+    echo -e "${YELLOW}Respaldos disponibles:${NC}"
 
     FILES=$(ls "$BACKUP_DIR"/*.sql.gz 2>/dev/null)
 
@@ -1867,7 +1873,7 @@ menu_mysql_backup(){
       echo -e "${CYAN}0) Cancelar${NC}"
 
       select db in $DBS; do
-10
+
         [[ "$REPLY" == "0" ]] && {
           warn "Cancelado."
           break
@@ -2153,51 +2159,70 @@ menu_mysql_backup(){
             break
         }
 
-        echo
-        echo -e "${YELLOW}Usuarios MYSQL:${NC}"
+        # =====================================================
+        # USUARIOS QUE TIENEN PERMISOS SOBRE ESTA BD
+        # (se detectan solos, con su host real)
+        # =====================================================
 
-        USERS=$(mysql -uroot -p"$ROOT_PASS" -N -e "
-        SELECT User FROM mysql.user
-        WHERE User NOT IN ('root','mysql','mariadb.sys');
+        mapfile -t LINKED < <(mysql -uroot -p"$ROOT_PASS" -N -B -e "
+          SELECT DISTINCT CONCAT(User,'@',Host)
+          FROM mysql.db
+          WHERE REPLACE(Db,'\\\\_','_') = '$DEL_DB'
+            AND User NOT IN ($MYSQL_SYS_USERS);
         ")
 
-        echo -e "${CYAN}0) Cancelar${NC}"
+        echo
+        echo -e "${GREEN}Base de datos:${RESET} $DEL_DB"
+        if [ ${#LINKED[@]} -gt 0 ]; then
+            echo -e "${GREEN}Usuarios asociados:${RESET}"
+            for u in "${LINKED[@]}"; do echo "   - $u"; done
+        else
+            echo -e "${YELLOW}No hay usuarios asociados a esta BD.${NC}"
+        fi
+        echo
 
-        select DEL_USER in $USERS; do
+        read -rp "Confirmar eliminación de la BD y sus usuarios? (s/n): " CONFIRM
 
-            [[ "$REPLY" == "0" ]] && {
-                warn "Cancelado"
-                break
-            }
+        [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]] && {
+            warn "Cancelado"
+            break
+        }
 
-            [ -n "$DEL_USER" ] || {
-                warn "Selección inválida"
-                break
-            }
+        if ! mysql -uroot -p"$ROOT_PASS" -e "DROP DATABASE \`$DEL_DB\`;"; then
+            err "Error al eliminar la BD"
+            break
+        fi
+        ok "BD '$DEL_DB' eliminada"
 
-            echo
-            read -rp "Confirmar eliminación de BD '$DEL_DB' y usuario '$DEL_USER' ? (s/n): " CONFIRM
+        for u in "${LINKED[@]}"; do
 
-            [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]] && {
-                warn "Cancelado"
-                break
-            }
+            U_NAME="${u%@*}"
+            U_HOST="${u##*@}"
 
-            mysql -uroot -p"$ROOT_PASS" -e "
-            DROP DATABASE \`$DEL_DB\`;
-            DROP USER '$DEL_USER'@'localhost';
-            FLUSH PRIVILEGES;
-            "
+            # ¿El usuario tiene permisos en OTRA BD? Entonces no se borra.
+            OTRAS=$(mysql -uroot -p"$ROOT_PASS" -N -B -e "
+              SELECT COUNT(*) FROM mysql.db
+              WHERE User='$U_NAME' AND Host='$U_HOST'
+                AND REPLACE(Db,'\\\\_','_') <> '$DEL_DB';
+            ")
 
-            if [ $? -eq 0 ]; then
-                ok "BD y usuario eliminados correctamente"
-            else
-                err "Error al eliminar BD o usuario"
+            if [ "${OTRAS:-0}" -gt 0 ]; then
+                warn "Usuario '$u' se mantiene (tiene permisos en otras BD)"
+                mysql -uroot -p"$ROOT_PASS" -e "
+                  REVOKE ALL PRIVILEGES ON \`$DEL_DB\`.* FROM '$U_NAME'@'$U_HOST';
+                " 2>/dev/null
+                continue
             fi
 
-            break
+            if mysql -uroot -p"$ROOT_PASS" -e "DROP USER IF EXISTS '$U_NAME'@'$U_HOST';"; then
+                ok "Usuario '$u' eliminado"
+            else
+                err "Error al eliminar usuario '$u'"
+            fi
 
         done
+
+        mysql -uroot -p"$ROOT_PASS" -e "FLUSH PRIVILEGES;"
 
         break
 
@@ -2205,7 +2230,114 @@ menu_mysql_backup(){
 
     pausa
 ;;
+
       7) sudo systemctl restart mysql && ok "MySQL reiniciado." || err "Error reiniciando MySQL."; pausa ;;
+
+8)
+
+    echo -e "${CYAN}========================================${RESET}"
+    echo -e "${WHITE}      USUARIOS MYSQL HUÉRFANOS${RESET}"
+    echo -e "${CYAN}========================================${RESET}"
+    echo
+
+    # =====================================================
+    # HUÉRFANO = usuario que no tiene permisos sobre
+    # ninguna BD que exista hoy.
+    # Se excluyen usuarios del sistema y usuarios con
+    # permisos globales (*.*), que no dependen de una BD.
+    # =====================================================
+
+    mapfile -t HUERFANOS < <(mysql -uroot -p"$ROOT_PASS" -N -B -e "
+      SELECT CONCAT(u.User,'@',u.Host)
+      FROM mysql.user u
+      WHERE u.User NOT IN ($MYSQL_SYS_USERS)
+        AND u.Select_priv = 'N'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM mysql.db d
+          JOIN information_schema.SCHEMATA s
+            ON s.SCHEMA_NAME = REPLACE(d.Db,'\\\\_','_')
+          WHERE d.User = u.User AND d.Host = u.Host
+        )
+      ORDER BY u.User, u.Host;
+    ")
+
+    if [ ${#HUERFANOS[@]} -eq 0 ]; then
+        ok "No hay usuarios huérfanos."
+        pausa
+        continue
+    fi
+
+    for i in "${!HUERFANOS[@]}"; do
+
+        u="${HUERFANOS[$i]}"
+        U_NAME="${u%@*}"
+        U_HOST="${u##*@}"
+
+        # BD a las que apuntaba (ya no existen)
+        ANTES=$(mysql -uroot -p"$ROOT_PASS" -N -B -e "
+          SELECT GROUP_CONCAT(DISTINCT Db SEPARATOR ', ')
+          FROM mysql.db WHERE User='$U_NAME' AND Host='$U_HOST';
+        ")
+        [ "$ANTES" == "NULL" ] && ANTES=""
+
+        echo -e "${YELLOW}$((i+1)))${NC} $u"
+        echo -e "   ${GREEN}BD asociada (eliminada):${NC} ${ANTES:-ninguna}"
+
+    done
+
+    echo
+    echo -e "${CYAN}a) Eliminar TODOS${NC}"
+    echo -e "${CYAN}0) Cancelar${NC}"
+    echo
+
+    read -rp "Selecciona usuario: " opt
+
+    [[ "$opt" == "0" ]] && continue
+
+    SELECCION=()
+
+    if [[ "$opt" == "a" || "$opt" == "A" ]]; then
+        SELECCION=("${HUERFANOS[@]}")
+    elif [[ "$opt" =~ ^[0-9]+$ ]] && (( opt >= 1 && opt <= ${#HUERFANOS[@]} )); then
+        SELECCION=("${HUERFANOS[$((opt-1))]}")
+    else
+        warn "Opción inválida"
+        pausa
+        continue
+    fi
+
+    echo
+    echo -e "${YELLOW}Se eliminarán:${NC}"
+    for u in "${SELECCION[@]}"; do echo "   - $u"; done
+    echo
+
+    read -rp "Confirmar? (s/n): " CONFIRM
+
+    [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]] && {
+        warn "Cancelado"
+        pausa
+        continue
+    }
+
+    for u in "${SELECCION[@]}"; do
+
+        U_NAME="${u%@*}"
+        U_HOST="${u##*@}"
+
+        if mysql -uroot -p"$ROOT_PASS" -e "DROP USER IF EXISTS '$U_NAME'@'$U_HOST';"; then
+            ok "Usuario '$u' eliminado"
+        else
+            err "Error al eliminar '$u'"
+        fi
+
+    done
+
+    mysql -uroot -p"$ROOT_PASS" -e "FLUSH PRIVILEGES;"
+
+    pausa
+;;
+
       0)
         return
       ;;
@@ -4823,7 +4955,7 @@ run_live() {
 menu_config_nextcloud(){
   while true; do
     clear
-    echo -e "${CYAN}${BOLD}=== CONFIGURACIÓN APACHE / NEXTCLOUD v24.3.2 ===${NC}"
+    echo -e "${CYAN}${BOLD}=== CONFIGURACIÓN APACHE / NEXTCLOUD v24.3.7 ===${NC}"
     echo -e " ${YELLOW}1)${NC} Editar VirtualHost Apache"
     echo -e " ${YELLOW}2)${NC} Editar config.php de Nextcloud"
     echo -e " ${YELLOW}3)${NC} Verificar configuración de Apache"
