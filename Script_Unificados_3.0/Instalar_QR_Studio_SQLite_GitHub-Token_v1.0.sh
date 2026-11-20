@@ -676,6 +676,26 @@ cambiar_opciones(){
   arrancar_y_verificar "$(leer_puerto)"
 }
 
+# --- Usuarios desde el script (rescate) ------------------------------------------------------
+# Crear usuarios y restablecer contraseñas (también la del administrador) sin entrar a la página.
+# Corre como el usuario del servicio, para que la base de datos no cambie de dueño, y puede
+# usarse con QR Studio en marcha. Sin parámetros abre un menú; con parámetros ejecuta una orden
+# (ej.: usuarios_debian restablecer correo@dominio.com).
+usuarios_debian(){
+  instalado || { aviso 'QR Studio no está instalado.'; return 1; }
+  [[ -f "$APP_DIR/usuarios.py" ]] || { fail 'Esta versión no trae la herramienta de usuarios: actualiza primero (opción 4 o 5).'; return 1; }
+  [[ -x "$VENV/bin/python" ]] || { fail 'Falta el entorno de Python (opción 1).'; return 1; }
+  command -v runuser >/dev/null 2>&1 || { fail 'Falta el comando runuser (paquete util-linux).'; return 1; }
+  [[ -f "$(ruta_db)" ]] || aviso 'Aún no hay base de datos: se creará al crear el primer usuario.'
+  local entrada=/dev/stdin; { : </dev/tty; } 2>/dev/null && entrada=/dev/tty
+  (cd "$INSTALL_ROOT" && runuser -u "$USUARIO" -- env \
+      APP_DB_PATH="$(ruta_db)" \
+      APP_MIN_PASSWORD_LENGTH="$(leer_env "$ENV_FILE" APP_MIN_PASSWORD_LENGTH 8)" \
+      APP_REGISTRATION_OPEN="$(leer_env "$ENV_FILE" APP_REGISTRATION_OPEN true)" \
+      PYTHONIOENCODING=utf-8 \
+      "$VENV/bin/python" -m app.usuarios "$@" <"$entrada")
+}
+
 # --- Respaldo manual / restaurar / desinstalar ---------------------------------------------
 respaldo_manual(){
   instalado || { aviso 'QR Studio no está instalado.'; return 1; }
@@ -917,6 +937,7 @@ services:
       APP_QR_QUOTA_MB: "${APP_QR_QUOTA_MB:-200}"
       APP_DYNAMIC_QR: "${APP_DYNAMIC_QR:-true}"
       APP_PUBLIC_URL: "${APP_PUBLIC_URL:-}"
+      APP_REGISTRATION_OPEN: "${APP_REGISTRATION_OPEN:-true}"
     volumes:
       - ./datos:/data
     read_only: true
@@ -1047,6 +1068,18 @@ docker_cambiar_cookies(){
   (cd "$ROOT_DOCKER" && dc up -d) && ok 'Configuración aplicada.'
 }
 
+# Usuarios desde el script (rescate): crear usuarios y restablecer contraseñas, también la del
+# administrador. Usa el contenedor en marcha o, si está detenido, uno temporal con los mismos datos.
+docker_usuarios(){
+  docker_instalado || { aviso 'Docker no está instalado.'; return 1; }
+  [[ -f "$ROOT_DOCKER/docker-compose.yml" ]] || { aviso 'QR Studio con Docker no está instalado.'; return 1; }
+  local modo=(exec) entrada=/dev/stdin
+  { : </dev/tty; } 2>/dev/null && entrada=/dev/tty
+  [[ -n "$(cd "$ROOT_DOCKER" && dc ps -q web 2>/dev/null)" ]] || modo=(run --rm)
+  (cd "$ROOT_DOCKER" && dc "${modo[@]}" web python -m app.usuarios "$@" <"$entrada") \
+    || aviso 'Si dice que no encuentra «app.usuarios», actualiza antes (opción 3): la imagen es de una versión anterior.'
+}
+
 docker_desinstalar(){
   docker_instalado || { aviso 'Docker no está instalado.'; return 1; }
   aviso "Se eliminará el contenedor, la imagen y $ROOT_DOCKER (código Y base de datos con las cuentas)."
@@ -1084,6 +1117,8 @@ menu_debian(){
     opcion_menu 13 'Crear respaldo completo (código + base de datos)'
     opcion_menu 14 'Restaurar respaldo / reinstalar desde respaldo'
     opcion_menu 15 'Desinstalar'
+    printf '%sCuentas%s\n' "$C_GRIS" "$C_FIN"
+    opcion_menu 16 'Usuarios: crear y restablecer contraseñas (rescate del administrador)'
     opcion_menu 0  'Volver'
     printf '\n'
     read -rp 'Opción: ' opcion </dev/tty || break
@@ -1104,6 +1139,7 @@ menu_debian(){
       13) respaldo_manual ;;
       14) restaurar_respaldo ;;
       15) desinstalar ;;
+      16) usuarios_debian ;;
       0|q|Q) break ;;
       *) continue ;;
     esac
@@ -1133,6 +1169,8 @@ menu_docker(){
     opcion_menu 9 'Cookies seguras (HTTPS)'
     opcion_menu 10 'Crear respaldo'
     opcion_menu 11 'Desinstalar'
+    printf '%sCuentas%s\n' "$C_GRIS" "$C_FIN"
+    opcion_menu 12 'Usuarios: crear y restablecer contraseñas (rescate del administrador)'
     opcion_menu 0 'Volver'
     printf '\n'
     read -rp 'Opción: ' opcion </dev/tty || break
@@ -1149,6 +1187,7 @@ menu_docker(){
       9) docker_cambiar_cookies ;;
       10) docker_respaldo_manual ;;
       11) docker_desinstalar ;;
+      12) docker_usuarios ;;
       0|q|Q) break ;;
       *) continue ;;
     esac
